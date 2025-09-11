@@ -222,7 +222,14 @@ const EnhancedEnrollmentForm = () => {
 
       if (!result.success) {
         console.error("Complete subscription creation failed:", result.error)
-        showToast(`Failed to create subscription: ${result.error}`, "error")
+        
+        // Check if the error is about existing active subscription
+        if (result.error && typeof result.error === 'string' && 
+            result.error.toLowerCase().includes('already have an active subscription')) {
+          showToast("⚠️ You already have an active subscription to this plan! Contact support to modify your existing subscription or choose a different plan.", "error")
+        } else {
+          showToast(`Failed to create subscription: ${result.error}`, "error")
+        }
         return false
       }
 

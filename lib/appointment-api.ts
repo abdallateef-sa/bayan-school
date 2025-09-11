@@ -232,6 +232,12 @@ export const AppointmentAPI = {
       console.log("📝 Complete subscription response body:", body)
       
       if (!res.ok) {
+        // Handle specific case of existing subscription (409 Conflict)
+        if (res.status === 409 && body?.message?.includes('already have an active subscription')) {
+          console.log("ℹ️ User already has an active subscription to this plan")
+          return { success: false, error: "You already have an active subscription to this plan" }
+        }
+        
         console.error("❌ Complete subscription creation failed:", body)
         let errorMsg = body?.message || "Failed to create complete subscription"
         return { success: false, error: errorMsg }
