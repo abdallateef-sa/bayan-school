@@ -35,6 +35,7 @@ async function parseJson<T = any>(res: Response): Promise<T> {
 }
 
 export const AppointmentAPI = {
+  // Send OTP for Login (existing users)
   async sendLoginOtp(email: string): Promise<{ success: true; token?: string; data?: unknown } | ApiFailure> {
     try {
       const res = await fetch(`${getBaseUrl()}/auth/login/send-otp`, {
@@ -44,36 +45,38 @@ export const AppointmentAPI = {
       })
       const body = await parseJson(res)
       if (!res.ok) return { success: false, error: body?.message || `Failed to send login OTP (${res.status})` }
-      return { success: true, token: body?.token as string | undefined, data: body }
+      return { success: true, data: body }
     } catch (e: any) {
       return { success: false, error: e?.message || "Network error sending login OTP" }
     }
   },
+  // Send OTP for Registration (new users)
   async sendOtp(email: string): Promise<ApiSuccess<unknown> | ApiFailure> {
     try {
       const url = `${getBaseUrl()}/auth/send-otp`
-      console.log("📧 Sending OTP to:", url, "for email:", email)
+      console.log("📧 Sending Registration OTP to:", url, "for email:", email)
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
       })
-      console.log("📧 OTP Response status:", res.status)
+      console.log("📧 Registration OTP Response status:", res.status)
       if (!res.ok) {
         const body = await parseJson(res)
-        console.log("❌ OTP Error:", body)
-        return { success: false, error: (body as any)?.message || `Failed to send OTP (${res.status})` }
+        console.log("❌ Registration OTP Error:", body)
+        return { success: false, error: (body as any)?.message || `Failed to send registration OTP (${res.status})` }
       }
       const responseData = await parseJson(res)
-      console.log("✅ OTP Success:", responseData)
+      console.log("✅ Registration OTP Success:", responseData)
       return { success: true, data: responseData }
     } catch (e: any) {
-      console.error("🚨 OTP Network Error:", e)
-      return { success: false, error: e?.message || "Network error sending OTP" }
+      console.error("🚨 Registration OTP Network Error:", e)
+      return { success: false, error: e?.message || "Network error sending registration OTP" }
     }
   },
 
-  async verifyOtp(email: string, otp: string): Promise<{ success: true; token: string } | ApiFailure> {
+  // Verify OTP (for both login and registration)
+  async verifyOtp(email: string, otp: string): Promise<{ success: true; token: string; tempToken?: string } | ApiFailure> {
     try {
       const url = `${getBaseUrl()}/auth/verify-otp`
       console.log("🔐 Verifying OTP at:", url, "for email:", email, "OTP:", otp)
@@ -86,53 +89,79 @@ export const AppointmentAPI = {
       const body = await parseJson(res)
       console.log("🔐 Verify Response body:", body)
       
-      // Check for success response with different structures
-      if (res.ok) {
-        // Try different token locations in response
-        const token = body?.token || body?.data?.token || body?.accessToken || body?.jwt
-        
-        if (token) {
-          console.log("✅ Verify Success, token found:", token)
-          return { success: true, token: token as string }
-        }
-        
-        // If status is ok but no token, maybe it's a message-only success
-        if (body?.message && (body.message.includes("success") || body.message.includes("logged in"))) {
-          console.log("✅ Verify Success with message:", body.message)
-          // Generate a temporary token or use email as identifier
-          return { success: true, token: `temp_${Date.now()}_${email}` }
-        }
+      if (!res.ok) {
+        const errorMessage = body?.message || body?.error || `Failed to verify OTP (${res.status})`
+        console.log("❌ Verify Error:", errorMessage)
+        return { success: false, error: errorMessage }
       }
+
+      // Extract tokens from the response based on backend structure
+      const token = body?.data?.token || body?.token
+      const tempToken = body?.data?.tempToken || body?.tempToken
       
-      // Handle error cases
-      const errorMessage = body?.message || body?.error || `Failed to verify OTP (${res.status})`
-      console.log("❌ Verify Error:", errorMessage)
-      return { success: false, error: errorMessage }
+      if (token) {
+        console.log("✅ Verify Success, permanent token found:", token)
+        return { success: true, token: token as string }
+      } else if (tempToken) {
+        console.log("✅ Verify Success, temp token found (needs registration completion):", tempToken)
+        return { success: true, token: tempToken as string, tempToken: tempToken as string }
+      } else {
+        console.log("❌ No token found in response")
+        return { success: false, error: "No authentication token received" }
+      }
     } catch (e: any) {
       console.error("🚨 Verify Network Error:", e)
       return { success: false, error: e?.message || "Network error verifying OTP" }
     }
   },
 
+  // Complete Registration (for new users after OTP verification)
   async completeRegistration(
     tempToken: string,
-    { name, phone }: { name: string; phone: string },
-  ): Promise<{ success: true; token: string } | ApiFailure> {
+    userData: {
+      firstName: string
+      lastName: string
+      phone: string
+      gender: string
+      country: string
+    }
+  ): Promise<{ success: true; token: string; user: any } | ApiFailure> {
     try {
-      const res = await fetch(`${getBaseUrl()}/auth/complete-registration`, {
+      const url = `${getBaseUrl()}/auth/complete-registration`
+      console.log("📝 Completing registration at:", url)
+      const res = await fetch(url, {
         method: "POST",
-        headers: {
+        headers: { 
           "Content-Type": "application/json",
-          Authorization: `Bearer ${tempToken}`,
+          "Authorization": `Bearer ${tempToken}`
         },
-        body: JSON.stringify({ name, phone }),
+        body: JSON.stringify(userData),
       })
+      console.log("📝 Complete Registration Response status:", res.status)
       const body = await parseJson(res)
-      if (!res.ok || !body?.token) {
-        return { success: false, error: body?.message || `Failed to complete registration (${res.status})` }
+      console.log("📝 Complete Registration Response body:", body)
+      
+      if (!res.ok) {
+        const errorMessage = body?.message || body?.error || `Failed to complete registration (${res.status})`
+        console.log("❌ Complete Registration Error:", errorMessage)
+        return { success: false, error: errorMessage }
       }
-      return { success: true, token: body.token as string }
+
+      const token = body?.data?.token || body?.token
+      const user = body?.data?.user || body?.user
+      
+      // If registration is successful but no new token is provided,
+      // it means the temp token should be used as the permanent token
+      if (res.status === 201 || res.status === 200) {
+        console.log("✅ Registration completed successfully")
+        // Use the temp token we already have if no new token is provided
+        const finalToken = token || tempToken
+        return { success: true, token: finalToken as string, user }
+      } else {
+        return { success: false, error: "Registration completion failed" }
+      }
     } catch (e: any) {
+      console.error("🚨 Complete Registration Network Error:", e)
       return { success: false, error: e?.message || "Network error completing registration" }
     }
   },
@@ -171,6 +200,48 @@ export const AppointmentAPI = {
     } catch (e: any) {
       console.error("🚨 Plans network error:", e)
       return { success: false, error: e?.message || "Network error fetching plans" }
+    }
+  },
+
+  // Create Complete Subscription (Plan + Sessions in one call)
+  async createCompleteSubscription(
+    jwt: string,
+    {
+      subscriptionPlanId,
+      startDate,
+      sessions,
+    }: {
+      subscriptionPlanId: string
+      startDate: string // YYYY-MM-DD
+      sessions: { date: string; time: string; notes?: string }[]
+    },
+  ): Promise<{ success: true; subscription: any } | ApiFailure> {
+    try {
+      const url = `${getBaseUrl()}/user/complete-subscription`
+      console.log("📝 Creating complete subscription at:", url, "Plan ID:", subscriptionPlanId)
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${jwt}`,
+        },
+        body: JSON.stringify({ subscriptionPlanId, startDate, sessions }),
+      })
+      console.log("📝 Complete subscription response status:", res.status)
+      const body = await parseJson(res)
+      console.log("📝 Complete subscription response body:", body)
+      
+      if (!res.ok) {
+        console.error("❌ Complete subscription creation failed:", body)
+        let errorMsg = body?.message || "Failed to create complete subscription"
+        return { success: false, error: errorMsg }
+      }
+      
+      console.log("✅ Complete subscription created successfully!")
+      return { success: true, subscription: body?.data?.subscription || body }
+    } catch (e: any) {
+      console.error("🚨 Complete subscription network error:", e)
+      return { success: false, error: e?.message || "Network error creating complete subscription" }
     }
   },
 
@@ -405,6 +476,43 @@ export const AppointmentAPI = {
     } catch (e: any) {
       console.warn("⚠️ Bulk sessions creation network error:", e)
       return { success: false, error: e?.message || "Network error creating bulk sessions" }
+    }
+  },
+
+  // Get booked slots to prevent conflicts (Optional endpoint)
+  async getBookedSlots(date?: string): Promise<{ success: true; bookedSlots: { date: string; time: string }[] } | ApiFailure> {
+    try {
+      const url = date 
+        ? `${getBaseUrl()}/sessions/booked?date=${date}`
+        : `${getBaseUrl()}/sessions/booked`
+      
+      console.log("📅 Fetching booked slots from:", url)
+      const res = await fetch(url, { cache: "no-store" })
+      console.log("📅 Booked slots response status:", res.status)
+      
+      // If endpoint doesn't exist (404), return empty array
+      if (res.status === 404) {
+        console.log("📅 Booked slots endpoint not implemented yet - returning empty array")
+        return { success: true, bookedSlots: [] }
+      }
+      
+      const body = await parseJson(res)
+      console.log("📅 Booked slots response body:", body)
+      
+      if (!res.ok) {
+        const errorMessage = body?.message || body?.error || `Failed to fetch booked slots (${res.status})`
+        console.log("❌ Booked slots fetch error:", errorMessage)
+        // Return empty array instead of error for non-critical feature
+        return { success: true, bookedSlots: [] }
+      }
+
+      const bookedSlots = body?.data?.bookedSlots || body?.bookedSlots || []
+      console.log("✅ Booked slots fetched successfully:", bookedSlots)
+      return { success: true, bookedSlots }
+    } catch (e: any) {
+      console.warn("� Booked slots fetch network error (endpoint might not exist):", e)
+      // Return empty array instead of error - this is not critical functionality
+      return { success: true, bookedSlots: [] }
     }
   },
 }

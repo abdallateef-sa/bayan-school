@@ -18,6 +18,22 @@ const EnhancedEnrollmentForm = () => {
   const [isSendingOtp, setIsSendingOtp] = useState(false)
   const [isLogin, setIsLogin] = useState(true)
   const [jwtToken, setJwtToken] = useState("")
+  const [isLoggedInUser, setIsLoggedInUser] = useState(false) // Track if user successfully logged in
+
+  // Toast notification state
+  const [toast, setToast] = useState<{ 
+    message: string; 
+    type: 'success' | 'error' | 'info'; 
+    show: boolean 
+  }>({ message: "", type: "info", show: false })
+
+  // Show toast notification
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setToast({ message, type, show: true })
+    setTimeout(() => {
+      setToast(prev => ({ ...prev, show: false }))
+    }, 5000)
+  }
 
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
@@ -28,12 +44,35 @@ const EnhancedEnrollmentForm = () => {
   const [availableSlots, setAvailableSlots] = useState<string[]>([])
   const [plans, setPlans] = useState<any[]>([])
   const [isLoadingPlans, setIsLoadingPlans] = useState(false)
+  const [bookedSlots, setBookedSlots] = useState<{ date: string; time: string }[]>([])
+  const [isLoadingSlots, setIsLoadingSlots] = useState(false)
 
   useEffect(() => {
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
     setUserTimezone(timezone)
     loadPlans()
+    loadBookedSlots() // Now backend supports this endpoint!
   }, [])
+
+  // Load booked slots to prevent conflicts
+  const loadBookedSlots = async () => {
+    setIsLoadingSlots(true)
+    try {
+      const result = await AppointmentAPI.getBookedSlots()
+      if (result.success) {
+        console.log("Booked slots loaded:", result.bookedSlots)
+        setBookedSlots(result.bookedSlots)
+      } else {
+        console.error("Failed to load booked slots:", result.error)
+        setBookedSlots([])
+      }
+    } catch (error) {
+      console.error("Error loading booked slots:", error)
+      setBookedSlots([])
+    } finally {
+      setIsLoadingSlots(false)
+    }
+  }
 
   const loadPlans = async () => {
     setIsLoadingPlans(true)
@@ -55,7 +94,7 @@ const EnhancedEnrollmentForm = () => {
 
   const sendOtp = async () => {
     if (!email || !email.includes("@")) {
-      alert("Please enter a valid email address")
+      showToast("Please enter a valid email address", "error")
       return
     }
 
@@ -68,14 +107,14 @@ const EnhancedEnrollmentForm = () => {
       if (result.success) {
         console.log("[OTP] Sent successfully to:", email)
         setOtpSent(true)
-        alert(`${isLogin ? 'Login' : 'Registration'} OTP sent to your email address!`)
+        showToast(`${isLogin ? 'Login' : 'Registration'} OTP sent to your email address!`, "success")
       } else {
         console.error("Failed to send OTP:", result.error)
-        alert(`Failed to send OTP: ${result.error}`)
+        showToast(`Failed to send OTP: ${result.error}`, "error")
       }
     } catch (error) {
       console.error("OTP sending error:", error)
-      alert("Failed to send OTP. Please try again.")
+      showToast("Failed to send OTP. Please try again.", "error")
     } finally {
       setIsSendingOtp(false)
     }
@@ -83,7 +122,7 @@ const EnhancedEnrollmentForm = () => {
 
   const verifyOtp = async () => {
     if (!otp || otp.length !== 6) {
-      alert("Please enter a valid 6-digit OTP")
+      showToast("Please enter a valid 6-digit OTP", "error")
       return
     }
 
@@ -93,26 +132,44 @@ const EnhancedEnrollmentForm = () => {
 
       if (result.success) {
         console.log("[OTP] Verified successfully for:", email)
-        setJwtToken(result.token)
+        
+        // Set email in form data first
         setFormData((prev) => ({
           ...prev,
           personal: { ...prev.personal, email },
         }))
-        
+
         if (isLogin) {
-          // For login, go straight to package selection
-          setCurrentStep(3)
+          // Login flow: always go to package selection
+          setJwtToken(result.token)
+          setIsLoggedInUser(true)
+          showToast("Login successful! Welcome back.", "success")
+          setCurrentStep(3) // Go to package selection
         } else {
-          // For registration, go to personal info step
-          setCurrentStep(2)
+          // Registration flow: check token type
+          if (result.tempToken) {
+            // New user - needs to complete personal info
+            setJwtToken(result.tempToken)
+            showToast("OTP verified! Please complete your personal information.", "success")
+            setCurrentStep(2) // Go to personal info
+          } else if (result.token) {
+            // User already exists but tried to register - treat as login
+            setJwtToken(result.token)
+            setIsLoggedInUser(true)
+            showToast("Welcome back! You already have an account.", "info")
+            setCurrentStep(3) // Go to package selection
+          } else {
+            showToast("Unable to complete verification. Please try again.", "error")
+            return
+          }
         }
       } else {
         console.error("OTP verification failed:", result.error)
-        alert(`OTP verification failed: ${result.error}`)
+        showToast(`OTP verification failed: ${result.error}`, "error")
       }
     } catch (error) {
       console.error("OTP verification error:", error)
-      alert("OTP verification failed. Please try again.")
+      showToast("OTP verification failed. Please try again.", "error")
     } finally {
       setIsVerifyingOtp(false)
     }
@@ -135,57 +192,46 @@ const EnhancedEnrollmentForm = () => {
 
     try {
       if (!jwtToken) {
-        alert("Authentication required. Please verify your email first.")
+        showToast("Authentication required. Please verify your email first.", "error")
         return false
       }
 
       if (!formData.package.planId) {
-        alert("Please select a package first.")
+        showToast("Please select a package first.", "error")
         return false
       }
 
-      // Step 1: Create subscription
+      // Create complete subscription with plan and all sessions in one call
       const today = new Date()
       const startDate = today.toISOString().split('T')[0] // YYYY-MM-DD format
       
-      console.log("Creating subscription for plan:", formData.package.planId)
-      const subscriptionResult = await AppointmentAPI.createSubscription(jwtToken, {
-        subscriptionPlanId: formData.package.planId,
-        startDate: startDate
-      })
-
-      if (!subscriptionResult.success) {
-        console.error("Subscription creation failed:", subscriptionResult.error)
-        alert(`Failed to create subscription: ${subscriptionResult.error}`)
-        return false
-      }
-
-      console.log("Subscription created:", subscriptionResult.subscriptionId)
-
-      // Step 2: Create all sessions in bulk
       const sessionsData = selectedSessions.map(session => ({
         date: session.date,
         time: session.time,
         notes: `${formData.package.name} session`
       }))
 
-      console.log("Creating sessions for subscription:", subscriptionResult.subscriptionId)
-      const sessionsResult = await AppointmentAPI.createBulkSessions(jwtToken, {
-        subscriptionId: subscriptionResult.subscriptionId,
+      console.log("Creating complete subscription for plan:", formData.package.planId)
+      console.log("Sessions:", sessionsData)
+      
+      const result = await AppointmentAPI.createCompleteSubscription(jwtToken, {
+        subscriptionPlanId: formData.package.planId,
+        startDate: startDate,
         sessions: sessionsData
       })
 
-      if (!sessionsResult.success) {
-        console.error("Sessions creation failed:", sessionsResult.error)
-        alert(`Failed to create sessions: ${sessionsResult.error}`)
+      if (!result.success) {
+        console.error("Complete subscription creation failed:", result.error)
+        showToast(`Failed to create subscription: ${result.error}`, "error")
         return false
       }
 
-      console.log("All sessions created successfully!")
+      console.log("Complete subscription created successfully!", result.subscription)
+      showToast("Subscription created successfully! Welcome to Bayan School!", "success")
       return true
     } catch (error) {
       console.error("Enrollment submission error:", error)
-      alert("An error occurred. Please try again.")
+      showToast("An error occurred. Please try again.", "error")
       return false
     } finally {
       setIsSubmitting(false)
@@ -267,22 +313,72 @@ const EnhancedEnrollmentForm = () => {
 
   const nextStep = async (step: number) => {
     if (step === 2) {
+      // Validate personal info fields
       const requiredFields: (keyof PersonalInfo)[] = ["firstName", "lastName", "gender", "country", "phone"]
       const isValid = requiredFields.every((field) => formData.personal[field])
 
       if (!isValid) {
-        alert("Please fill in all required fields")
+        showToast("Please fill in all required fields", "error")
         return
+      }
+
+      // Only complete registration if user is truly new (has tempToken)
+      if (jwtToken && !isLoggedInUser) {
+        console.log("🚀 Starting registration completion with data:", {
+          firstName: formData.personal.firstName,
+          lastName: formData.personal.lastName,
+          phone: formData.personal.phone,
+          gender: formData.personal.gender,
+          country: formData.personal.country,
+          token: jwtToken ? "present" : "missing"
+        })
+        
+        try {
+          const result = await AppointmentAPI.completeRegistration(jwtToken, {
+            firstName: formData.personal.firstName,
+            lastName: formData.personal.lastName,
+            phone: formData.personal.phone,
+            gender: formData.personal.gender,
+            country: formData.personal.country
+          })
+
+          console.log("🎯 Registration completion result:", result)
+
+          if (result.success) {
+            console.log("✅ Registration completed successfully!")
+            setJwtToken(result.token) // Update with permanent token
+            setIsLoggedInUser(true) // Now user is fully registered
+            showToast("Registration completed successfully! 🎉", "success")
+          } else {
+            // Handle registration errors gracefully
+            console.log("❌ Registration error:", result.error)
+            if (result.error && (result.error.includes("already completed") || result.error.includes("No authentication token"))) {
+              // If registration completed but no token, or already completed,
+              // treat as success and proceed
+              console.log("📝 Registration was successful, proceeding with existing token")
+              showToast("Account setup completed! Please proceed to select your package.", "success")
+              setIsLoggedInUser(true)
+            } else {
+              showToast(`Registration failed: ${result.error}`, "error")
+              console.error("❌ Full error details:", result)
+              return
+            }
+          }
+        } catch (error) {
+          console.error("🚨 Registration completion error:", error)
+          showToast("Network error during registration. Please check your connection and try again.", "error")
+          return
+        }
       }
     } else if (step === 3) {
       if (!formData.package.type) {
-        alert("Please select a package")
+        showToast("Please select a package", "error")
         return
       }
     } else if (step === 4) {
       const totalRequired = maxSessions
       if (selectedSessions.length < totalRequired) {
-        alert(`Please select ${totalRequired} sessions`)
+        showToast(`Please select ${totalRequired} sessions`, "error")
         return
       }
 
@@ -296,7 +392,14 @@ const EnhancedEnrollmentForm = () => {
   }
 
   const previousStep = (step: number) => {
-    setCurrentStep(step - 1)
+    const targetStep = step - 1
+    
+    // If user is trying to go back to step 2 but they are a logged in user, go to step 1 instead
+    if (targetStep === 2 && isLoggedInUser) {
+      setCurrentStep(1)
+    } else {
+      setCurrentStep(targetStep)
+    }
   }
 
   const updatePersonalInfo = (field: keyof PersonalInfo, value: string) => {
@@ -327,6 +430,9 @@ const EnhancedEnrollmentForm = () => {
     const daysInMonth = new Date(year, month + 1, 0).getDate()
     const today = new Date()
     today.setHours(0, 0, 0, 0)
+    // Prevent booking for today and any past dates
+    const minimumBookingDate = new Date(today)
+    minimumBookingDate.setDate(today.getDate() + 1) // Start from tomorrow
 
     const days = []
 
@@ -336,26 +442,61 @@ const EnhancedEnrollmentForm = () => {
 
     for (let day = 1; day <= daysInMonth; day++) {
       const date = new Date(year, month, day)
-      const isPast = date < today
+      const isPast = date < minimumBookingDate // Changed to use minimumBookingDate
       const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
       const isSelected = selectedSessions.some((s) => s.date === dateStr)
       const isCurrentlySelected = selectedDate === dateStr
 
+      // Calculate week boundaries for this date
+      const weekStart = new Date(date)
+      weekStart.setDate(date.getDate() - date.getDay()) // Sunday
+      const weekEnd = new Date(weekStart)
+      weekEnd.setDate(weekStart.getDate() + 6) // Saturday
+      
+      // Count sessions in this week
+      const sessionsPerWeek = formData.package.sessionsPerWeek || 2
+      const sessionsInWeek = selectedSessions.filter(session => {
+        const sessionDate = new Date(session.date)
+        return sessionDate >= weekStart && sessionDate <= weekEnd
+      }).length
+      
+      // Check if this week is full
+      const isWeekFull = sessionsInWeek >= sessionsPerWeek && !isSelected
+
       days.push(
         <div
           key={day}
-          className={`w-12 h-12 flex items-center justify-center rounded-2xl cursor-pointer transition-all duration-300 text-sm font-semibold ${
+          className={`w-12 h-12 flex flex-col items-center justify-center rounded-2xl cursor-pointer transition-all duration-300 text-sm font-semibold relative ${
             isPast
               ? "bg-gray-50 text-gray-300 cursor-not-allowed"
               : isCurrentlySelected
                 ? "bg-gradient-to-br from-blue-500 to-purple-600 text-white shadow-xl scale-110 shadow-blue-200"
                 : isSelected
                   ? "bg-gradient-to-br from-blue-50 to-purple-50 text-blue-600 border-2 border-blue-200"
+                  : isWeekFull
+                  ? "bg-orange-50 text-orange-600 border-2 border-orange-200 cursor-not-allowed opacity-70"
                   : "bg-white text-gray-700 border-2 border-gray-100 hover:border-blue-200 hover:bg-gradient-to-br hover:from-blue-50 hover:to-purple-50 hover:scale-105 hover:shadow-lg"
           }`}
-          onClick={isPast ? undefined : () => selectDate(dateStr)}
+          onClick={isPast || isWeekFull ? undefined : () => selectDate(dateStr)}
+          title={
+            isPast 
+              ? "Past date - cannot book" 
+              : isWeekFull
+              ? `Week full (${sessionsInWeek}/${sessionsPerWeek} sessions used)`
+              : isSelected
+              ? "Has booked sessions"
+              : "Available for booking"
+          }
         >
-          {day}
+          <span className="text-xs">{day}</span>
+          {isWeekFull && !isSelected && (
+            <div className="absolute -top-1 -right-1 w-4 h-4 bg-orange-500 rounded-full flex items-center justify-center">
+              <span className="text-white text-xs leading-none">!</span>
+            </div>
+          )}
+          {isSelected && (
+            <span className="text-xs leading-none">✓</span>
+          )}
         </div>,
       )
     }
@@ -374,29 +515,336 @@ const EnhancedEnrollmentForm = () => {
   const selectDate = async (date: string) => {
     setSelectedDate(date)
     await fetchAvailableSlots(date)
+    // Refresh booked slots when date changes
+    await loadBookedSlots()
+  }
+
+  // Helper function to format week range
+  const formatWeekRange = (date: Date) => {
+    const weekStart = new Date(date)
+    weekStart.setDate(date.getDate() - date.getDay()) // Sunday
+    const weekEnd = new Date(weekStart)
+    weekEnd.setDate(weekStart.getDate() + 6) // Saturday
+    
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    
+    if (weekStart.getMonth() === weekEnd.getMonth()) {
+      return `${months[weekStart.getMonth()]} ${weekStart.getDate()} - ${weekEnd.getDate()}`
+    } else {
+      return `${months[weekStart.getMonth()]} ${weekStart.getDate()} - ${months[weekEnd.getMonth()]} ${weekEnd.getDate()}`
+    }
+  }
+
+  // Helper function to count sessions in a week
+  const getWeekSessionCount = (dateStr: string) => {
+    const date = new Date(dateStr)
+    const weekStart = new Date(date)
+    weekStart.setDate(date.getDate() - date.getDay()) // Sunday
+    const weekEnd = new Date(weekStart)
+    weekEnd.setDate(weekStart.getDate() + 6) // Saturday
+    
+    return selectedSessions.filter(session => {
+      const sessionDate = new Date(session.date)
+      return sessionDate >= weekStart && sessionDate <= weekEnd
+    }).length
+  }
+
+  // Function to print comprehensive summary
+  const printSummary = () => {
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) return
+
+    const printContent = `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Enrollment Summary - ${formData.personal.firstName} ${formData.personal.lastName}</title>
+        <style>
+          * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+          }
+          body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: white;
+            padding: 20px;
+            direction: ltr;
+          }
+          .header {
+            text-align: center;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #3b82f6;
+            padding-bottom: 20px;
+          }
+          .header h1 {
+            color: #1e40af;
+            font-size: 28px;
+            margin-bottom: 10px;
+          }
+          .header p {
+            color: #6b7280;
+            font-size: 16px;
+          }
+          .section {
+            margin-bottom: 25px;
+            padding: 20px;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            background: #f9fafb;
+          }
+          .section h2 {
+            color: #1f2937;
+            font-size: 20px;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #d1d5db;
+            padding-bottom: 8px;
+          }
+          .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+          }
+          .info-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+          }
+          .info-label {
+            font-weight: 600;
+            color: #374151;
+          }
+          .info-value {
+            color: #6b7280;
+          }
+          .sessions-list {
+            list-style: none;
+          }
+          .sessions-list li {
+            padding: 8px;
+            margin: 5px 0;
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 4px;
+          }
+          .date {
+            font-weight: 600;
+            color: #1e40af;
+          }
+          .time {
+            color: #059669;
+            margin-left: 10px;
+          }
+          .footer {
+            margin-top: 30px;
+            text-align: center;
+            padding-top: 20px;
+            border-top: 1px solid #e5e7eb;
+            color: #6b7280;
+            font-size: 14px;
+          }
+          @media print {
+            body { margin: 0; padding: 15px; }
+            .section { break-inside: avoid; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>Enrollment Summary - Bayan School</h1>
+          <p>Print Date: ${new Date().toLocaleDateString('en-US', { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric',
+            weekday: 'long'
+          })} - ${new Date().toLocaleDateString('ar-SA-u-ca-islamic', { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric'
+          })}</p>
+        </div>
+
+        <!-- Student Information -->
+        <div class="section">
+          <h2>Student Information</h2>
+          <div class="info-grid">
+            <div class="info-item">
+              <span class="info-label">First Name:</span>
+              <span class="info-value">${formData.personal.firstName}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">Last Name:</span>
+              <span class="info-value">${formData.personal.lastName}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">Phone Number:</span>
+              <span class="info-value">${formData.personal.phone}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">Email:</span>
+              <span class="info-value">${formData.personal.email}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">Gender:</span>
+              <span class="info-value">${formData.personal.gender === 'Male' ? 'Male' : formData.personal.gender === 'Female' ? 'Female' : 'Not Specified'}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">Country:</span>
+              <span class="info-value">${formData.personal.country}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Subscription Information -->
+        <div class="section">
+          <h2>Subscription Information</h2>
+          <div class="info-grid">
+            <div class="info-item">
+              <span class="info-label">Plan Name:</span>
+              <span class="info-value">${formData.package.name}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">Total Sessions:</span>
+              <span class="info-value">${formData.package.sessions} sessions</span>
+            </div>
+            ${formData.package.sessionsPerWeek ? `
+            <div class="info-item">
+              <span class="info-label">Sessions per Week:</span>
+              <span class="info-value">${formData.package.sessionsPerWeek} sessions</span>
+            </div>
+            ` : ''}
+          </div>
+        </div>
+
+        <!-- Scheduled Sessions -->
+        <div class="section">
+          <h2>Scheduled Sessions (${selectedSessions.length} sessions)</h2>
+          ${selectedSessions.length > 0 ? `
+          <ul class="sessions-list">
+            ${selectedSessions.map(session => `
+              <li>
+                <span class="date">${new Date(session.date).toLocaleDateString('en-US', { 
+                  year: 'numeric', 
+                  month: 'long', 
+                  day: 'numeric',
+                  weekday: 'long'
+                })} - ${new Date(session.date).toLocaleDateString('ar-SA-u-ca-islamic', { 
+                  year: 'numeric', 
+                  month: 'long', 
+                  day: 'numeric'
+                })}</span>
+                <span class="time">Time: ${session.time}</span>
+              </li>
+            `).join('')}
+          </ul>
+          ` : `
+          <p style="text-align: center; color: #6b7280; padding: 20px;">No sessions scheduled yet</p>
+          `}
+        </div>
+
+        <!-- Summary -->
+        <div class="section">
+          <h2>Subscription Summary</h2>
+          <div class="info-grid">
+            <div class="info-item">
+              <span class="info-label">Registration Date:</span>
+              <span class="info-value">${new Date().toLocaleDateString('en-US')} - ${new Date().toLocaleDateString('ar-SA-u-ca-islamic')}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">Subscription Status:</span>
+              <span class="info-value">Active</span>
+            </div>
+            ${selectedSessions.length > 0 ? `
+            <div class="info-item">
+              <span class="info-label">First Session Date:</span>
+              <span class="info-value">${new Date(selectedSessions[0].date).toLocaleDateString('en-US')} - ${new Date(selectedSessions[0].date).toLocaleDateString('ar-SA-u-ca-islamic')}</span>
+            </div>
+            ` : ''}
+            <div class="info-item">
+              <span class="info-label">Scheduled Sessions:</span>
+              <span class="info-value">${selectedSessions.length} of ${formData.package.sessions}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="footer">
+          <p>Bayan School - All Rights Reserved</p>
+          <p>For inquiries: support@bayan-school.com | 123-456-7890</p>
+        </div>
+      </body>
+      </html>
+    `
+
+    printWindow.document.write(printContent)
+    printWindow.document.close()
+    printWindow.focus()
+    setTimeout(() => {
+      printWindow.print()
+      printWindow.close()
+    }, 500)
   }
 
   const generateTimeSlots = () => {
     if (!selectedDate) return []
 
     const slots = []
+    const sessionsPerWeek = formData.package.sessionsPerWeek || 2
+    
+    // Calculate week boundaries for selected date
+    const selectedDateObj = new Date(selectedDate)
+    const weekStart = new Date(selectedDateObj)
+    weekStart.setDate(selectedDateObj.getDate() - selectedDateObj.getDay()) // Sunday
+    const weekEnd = new Date(weekStart)
+    weekEnd.setDate(weekStart.getDate() + 6) // Saturday
+    
+    // Count existing sessions in this week
+    const sessionsInWeek = selectedSessions.filter(session => {
+      const sessionDate = new Date(session.date)
+      return sessionDate >= weekStart && sessionDate <= weekEnd
+    }).length
+    
+    // Check if this week is full
+    const isWeekFull = sessionsInWeek >= sessionsPerWeek
 
     for (const time of availableSlots) {
       const [hour, minute] = time.split(":").map(Number)
       const displayTime = formatTime(hour, minute)
       const isSelected = selectedSessions.some((s) => s.date === selectedDate && s.time === time)
+      
+      // Check if this slot is booked by another student
+      const isBooked = bookedSlots.some((slot) => slot.date === selectedDate && slot.time === time)
+      
+      // Prevent selection if week is full and slot is not already selected
+      const isWeekLimitReached = isWeekFull && !isSelected
 
       slots.push(
         <div
           key={`${selectedDate}-${time}`}
-          className={`px-4 py-3 rounded-2xl cursor-pointer transition-all duration-300 text-center font-medium text-sm border-2 ${
-            isSelected
-              ? "border-blue-500 bg-gradient-to-br from-blue-500 to-purple-600 text-white shadow-lg transform scale-105"
-              : "border-gray-200 bg-white text-gray-700 hover:border-blue-300 hover:bg-gradient-to-br hover:from-blue-50 hover:to-purple-50 hover:scale-105 hover:shadow-md"
+          className={`px-4 py-3 rounded-2xl transition-all duration-300 text-center font-medium text-sm border-2 ${
+            isBooked
+              ? "border-red-200 bg-red-50 text-red-400 cursor-not-allowed opacity-60"
+              : isWeekLimitReached
+              ? "border-orange-200 bg-orange-50 text-orange-400 cursor-not-allowed opacity-60"
+              : isSelected
+              ? "border-blue-500 bg-gradient-to-br from-blue-500 to-purple-600 text-white shadow-lg transform scale-105 cursor-pointer"
+              : "border-gray-200 bg-white text-gray-700 hover:border-blue-300 hover:bg-gradient-to-br hover:from-blue-50 hover:to-purple-50 hover:scale-105 hover:shadow-md cursor-pointer"
           }`}
-          onClick={() => toggleTimeSlot(time)}
+          onClick={isBooked || isWeekLimitReached ? undefined : () => toggleTimeSlot(time)}
+          title={
+            isBooked 
+              ? "This time slot is already booked" 
+              : isWeekLimitReached
+              ? `Week limit reached (${sessionsPerWeek} sessions max)`
+              : ""
+          }
         >
           {displayTime}
+          {isBooked && <span className="block text-xs mt-1">Booked</span>}
+          {isWeekLimitReached && !isBooked && <span className="block text-xs mt-1">Week Full</span>}
         </div>,
       )
     }
@@ -417,18 +865,26 @@ const EnhancedEnrollmentForm = () => {
     const totalAllowed = maxSessions
 
     if (existingIndex > -1) {
+      // Remove session
       setSelectedSessions((prev) => prev.filter((_, index) => index !== existingIndex))
     } else {
-      if (selectedSessions.length < totalAllowed) {
-        setSelectedSessions((prev) => [...prev, { date: selectedDate, time }])
-      } else {
-        alert(`You can only select ${totalAllowed} sessions`)
+      // Add session
+      if (selectedSessions.length >= totalAllowed) {
+        showToast(`You can only select ${totalAllowed} sessions in total`, "info")
+        return
       }
+
+      setSelectedSessions((prev) => [...prev, { date: selectedDate, time }])
     }
   }
 
   const resetForm = () => {
-    setFormData({ personal: {} as PersonalInfo, package: {} as SelectedPackage, sessions: [] })
+    // Reset all form data
+    setFormData({ 
+      personal: { firstName: "", lastName: "", gender: "", email: "", country: "", phone: "" }, 
+      package: { name: "", type: "", sessions: 0 }, 
+      sessions: [] 
+    })
     setSelectedSessions([])
     setSelectedDate(null)
     setMaxSessions(0)
@@ -436,6 +892,18 @@ const EnhancedEnrollmentForm = () => {
     setOtp("")
     setOtpSent(false)
     setCurrentStep(1)
+    setJwtToken("")
+    setIsLoggedInUser(false)
+    setIsLogin(false)
+    setToast({ message: "", type: "info", show: false })
+    setBookedSlots([]) // Reset booked slots
+    // Clear any loading states
+    setIsSendingOtp(false)
+    setIsVerifyingOtp(false)
+    setIsSubmitting(false)
+    setIsLoadingSlots(false)
+    // Reload fresh data
+    loadBookedSlots()
   }
 
   const monthNames = [
@@ -622,7 +1090,7 @@ const EnhancedEnrollmentForm = () => {
           </div>
         )}
 
-        {currentStep === 2 && (
+        {currentStep === 2 && !isLoggedInUser && (
           <div className="animate-in fade-in-50 slide-in-from-right-4 duration-700">
             <div className="flex items-center mb-8">
               <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center mr-4">
@@ -669,13 +1137,13 @@ const EnhancedEnrollmentForm = () => {
                 <select
                   className="w-full px-4 py-4 bg-gray-50 border-0 rounded-2xl focus:bg-white focus:ring-2 focus:ring-blue-500 transition-all duration-300 text-gray-800"
                   value={formData.personal.gender || ""}
-                  onChange={(e) => updatePersonalInfo("gender", e.target.value as "male" | "female")}
+                  onChange={(e) => updatePersonalInfo("gender", e.target.value as "Male" | "Female")}
                   aria-label="Select gender"
                   title="Select your gender"
                 >
                   <option value="">Select your gender</option>
-                  <option value="male">Male</option>
-                  <option value="female">Female</option>
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
                 </select>
               </div>
 
@@ -903,12 +1371,61 @@ const EnhancedEnrollmentForm = () => {
                     day: "numeric",
                   })}
                 </h3>
+
+                {(() => {
+                  const selectedDateObj = new Date(selectedDate)
+                  const weekStart = new Date(selectedDateObj)
+                  weekStart.setDate(selectedDateObj.getDate() - selectedDateObj.getDay())
+                  const weekEnd = new Date(weekStart)
+                  weekEnd.setDate(weekStart.getDate() + 6)
+                  
+                  const sessionsPerWeek = formData.package.sessionsPerWeek || 2
+                  const sessionsInWeek = selectedSessions.filter(session => {
+                    const sessionDate = new Date(session.date)
+                    return sessionDate >= weekStart && sessionDate <= weekEnd
+                  }).length
+                  
+                  return (
+                    <div className="bg-white rounded-2xl p-4 mb-6 border border-blue-100">
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <p className="text-sm text-gray-600">Week Period:</p>
+                          <p className="font-semibold text-gray-800">
+                            {weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm text-gray-600">Sessions Used:</p>
+                          <p className={`font-bold text-lg ${sessionsInWeek >= sessionsPerWeek ? 'text-orange-600' : 'text-green-600'}`}>
+                            {sessionsInWeek} / {sessionsPerWeek}
+                          </p>
+                        </div>
+                      </div>
+                      {sessionsInWeek >= sessionsPerWeek && (
+                        <div className="mt-3 p-3 bg-orange-50 border border-orange-200 rounded-xl">
+                          <p className="text-sm text-orange-800 flex items-center">
+                            <span className="mr-2">⚠️</span>
+                            Weekly limit reached for this week. Select dates from other weeks.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
+
                 <p className="text-gray-600 mb-6">
                   Choose your preferred 30-minute sessions (combine for 60-minute sessions)
                 </p>
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
-                  {generateTimeSlots()}
-                </div>
+                {isLoadingSlots ? (
+                  <div className="text-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                    <p className="text-gray-500">Loading available time slots...</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+                    {generateTimeSlots()}
+                  </div>
+                )}
               </div>
             )}
 
@@ -1053,7 +1570,7 @@ const EnhancedEnrollmentForm = () => {
                 New Registration
               </button>
               <button
-                onClick={() => window.print()}
+                onClick={printSummary}
                 className="px-8 py-4 bg-gray-100 text-gray-700 rounded-2xl font-semibold hover:bg-gray-200 transition-all duration-300"
               >
                 Print Summary
@@ -1062,6 +1579,42 @@ const EnhancedEnrollmentForm = () => {
           </div>
         )}
       </div>
+
+      {/* Toast Notification */}
+      {toast.show && (
+        <div className={`fixed top-4 right-4 z-50 px-6 py-4 rounded-2xl shadow-2xl transform transition-all duration-500 ease-out max-w-md ${
+          toast.show ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0'
+        } ${
+          toast.type === 'success' 
+            ? 'bg-gradient-to-r from-green-500 to-teal-600 text-white' 
+            : toast.type === 'error'
+            ? 'bg-gradient-to-r from-red-500 to-pink-600 text-white'
+            : 'bg-gradient-to-r from-blue-500 to-purple-600 text-white'
+        }`}>
+          <div className="flex items-center">
+            <span className="text-xl mr-3">
+              {toast.type === 'success' ? '✅' : toast.type === 'error' ? '❌' : 'ℹ️'}
+            </span>
+            <p className="font-semibold flex-1">{toast.message}</p>
+            <button
+              onClick={() => setToast(prev => ({ ...prev, show: false }))}
+              className="ml-4 text-white hover:text-gray-200 font-bold text-lg"
+            >
+              ×
+            </button>
+          </div>
+          {toast.type === 'error' && toast.message.includes('failed') && (
+            <div className="mt-3 pt-3 border-t border-white/20">
+              <button
+                onClick={resetForm}
+                className="text-sm text-white/90 hover:text-white underline transition-colors duration-200"
+              >
+                Start Over ↺
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

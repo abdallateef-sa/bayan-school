@@ -1,7 +1,7 @@
 export interface PersonalInfo {
   firstName: string
   lastName: string
-  gender: "male" | "female" | ""
+  gender: "Male" | "Female" | ""
   email: string
   country: string
   phone: string
