@@ -6,13 +6,6 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  images: {
-    unoptimized: true,
-  },
-  trailingSlash: false,
-  experimental: {
-    esmExternals: true,
-  },
-};
+}
 
-export default nextConfig;
+export default nextConfig
