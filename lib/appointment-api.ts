@@ -20,7 +20,6 @@ type ApiFailure = { success: false; error: string }
 
 function getBaseUrl() {
   const base = process.env.NEXT_PUBLIC_API_URL || ""
-  console.log("🌐 API Base URL:", base)
   return base.replace(/\/$/, "")
 }
 
@@ -54,23 +53,18 @@ export const AppointmentAPI = {
   async sendOtp(email: string): Promise<ApiSuccess<unknown> | ApiFailure> {
     try {
       const url = `${getBaseUrl()}/auth/send-otp`
-      console.log("📧 Sending Registration OTP to:", url, "for email:", email)
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
       })
-      console.log("📧 Registration OTP Response status:", res.status)
       if (!res.ok) {
         const body = await parseJson(res)
-        console.log("❌ Registration OTP Error:", body)
         return { success: false, error: (body as any)?.message || `Failed to send registration OTP (${res.status})` }
       }
       const responseData = await parseJson(res)
-      console.log("✅ Registration OTP Success:", responseData)
       return { success: true, data: responseData }
     } catch (e: any) {
-      console.error("🚨 Registration OTP Network Error:", e)
       return { success: false, error: e?.message || "Network error sending registration OTP" }
     }
   },
@@ -79,19 +73,15 @@ export const AppointmentAPI = {
   async verifyOtp(email: string, otp: string): Promise<{ success: true; token: string; tempToken?: string } | ApiFailure> {
     try {
       const url = `${getBaseUrl()}/auth/verify-otp`
-      console.log("🔐 Verifying OTP at:", url, "for email:", email, "OTP:", otp)
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, otp }),
       })
-      console.log("🔐 Verify Response status:", res.status)
       const body = await parseJson(res)
-      console.log("🔐 Verify Response body:", body)
       
       if (!res.ok) {
         const errorMessage = body?.message || body?.error || `Failed to verify OTP (${res.status})`
-        console.log("❌ Verify Error:", errorMessage)
         return { success: false, error: errorMessage }
       }
 
@@ -100,17 +90,13 @@ export const AppointmentAPI = {
       const tempToken = body?.data?.tempToken || body?.tempToken
       
       if (token) {
-        console.log("✅ Verify Success, permanent token found:", token)
         return { success: true, token: token as string }
       } else if (tempToken) {
-        console.log("✅ Verify Success, temp token found (needs registration completion):", tempToken)
         return { success: true, token: tempToken as string, tempToken: tempToken as string }
       } else {
-        console.log("❌ No token found in response")
         return { success: false, error: "No authentication token received" }
       }
     } catch (e: any) {
-      console.error("🚨 Verify Network Error:", e)
       return { success: false, error: e?.message || "Network error verifying OTP" }
     }
   },
@@ -128,7 +114,6 @@ export const AppointmentAPI = {
   ): Promise<{ success: true; token: string; user: any } | ApiFailure> {
     try {
       const url = `${getBaseUrl()}/auth/complete-registration`
-      console.log("📝 Completing registration at:", url)
       const res = await fetch(url, {
         method: "POST",
         headers: { 
@@ -137,13 +122,10 @@ export const AppointmentAPI = {
         },
         body: JSON.stringify(userData),
       })
-      console.log("📝 Complete Registration Response status:", res.status)
       const body = await parseJson(res)
-      console.log("📝 Complete Registration Response body:", body)
       
       if (!res.ok) {
         const errorMessage = body?.message || body?.error || `Failed to complete registration (${res.status})`
-        console.log("❌ Complete Registration Error:", errorMessage)
         return { success: false, error: errorMessage }
       }
 
@@ -153,7 +135,6 @@ export const AppointmentAPI = {
       // If registration is successful but no new token is provided,
       // it means the temp token should be used as the permanent token
       if (res.status === 201 || res.status === 200) {
-        console.log("✅ Registration completed successfully")
         // Use the temp token we already have if no new token is provided
         const finalToken = token || tempToken
         return { success: true, token: finalToken as string, user }
@@ -161,7 +142,6 @@ export const AppointmentAPI = {
         return { success: false, error: "Registration completion failed" }
       }
     } catch (e: any) {
-      console.error("🚨 Complete Registration Network Error:", e)
       return { success: false, error: e?.message || "Network error completing registration" }
     }
   },
@@ -169,15 +149,11 @@ export const AppointmentAPI = {
   async getPlans(): Promise<{ success: true; plans: Plan[] } | ApiFailure> {
     try {
       const url = `${getBaseUrl()}/plans`
-      console.log("📦 Fetching plans from:", url)
       const res = await fetch(url, { cache: "no-store" })
-      console.log("📦 Plans response status:", res.status)
       const body = await parseJson(res)
-      console.log("📦 Plans response body:", body)
       
       if (!res.ok) {
         const errorMsg = body?.message || `Failed to fetch plans (${res.status})`
-        console.error("❌ Plans fetch error:", errorMsg)
         return { success: false, error: errorMsg }
       }
 
@@ -191,15 +167,64 @@ export const AppointmentAPI = {
       } else if (Array.isArray(body)) {
         plans = body
       } else {
-        console.warn("⚠️ Unexpected plans response structure:", body)
         return { success: false, error: "Invalid plans data structure" }
       }
       
-      console.log("✅ Plans parsed successfully:", plans.length, "plans:", plans)
       return { success: true, plans }
     } catch (e: any) {
-      console.error("🚨 Plans network error:", e)
       return { success: false, error: e?.message || "Network error fetching plans" }
+    }
+  },
+
+  // Get user profile
+  async getUserProfile(
+    jwt: string
+  ): Promise<{ success: true; user: any } | ApiFailure> {
+    try {
+      const url = `${getBaseUrl()}/user/profile`
+      const res = await fetch(url, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${jwt}`,
+        },
+      })
+      const body = await parseJson(res)
+
+      if (!res.ok) {
+        return { success: false, error: body?.message || "Failed to get profile" }
+      }
+
+      return { success: true, user: body.data?.user || body.data || body }
+    } catch (e: any) {
+      return { success: false, error: e?.message || "Network error getting profile" }
+    }
+  },
+
+  // Update user profile
+  async updateUserProfile(
+    jwt: string,
+    profileData: { country?: string; [key: string]: any }
+  ): Promise<{ success: true; user: any } | ApiFailure> {
+    try {
+      const url = `${getBaseUrl()}/user/profile`
+      const res = await fetch(url, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${jwt}`,
+        },
+        body: JSON.stringify(profileData),
+      })
+      const body = await parseJson(res)
+      
+      if (!res.ok) {
+        return { success: false, error: body?.message || "Failed to update profile" }
+      }
+      
+      return { success: true, user: body?.data?.user || body }
+    } catch (e: any) {
+      return { success: false, error: e?.message || "Network error updating profile" }
     }
   },
 
@@ -210,43 +235,50 @@ export const AppointmentAPI = {
       subscriptionPlanId,
       startDate,
       sessions,
+      country,
     }: {
       subscriptionPlanId: string
       startDate: string // YYYY-MM-DD
       sessions: { date: string; time: string; notes?: string }[]
+      country?: string // User's country for timezone handling
     },
   ): Promise<{ success: true; subscription: any } | ApiFailure> {
     try {
       const url = `${getBaseUrl()}/user/complete-subscription`
-      console.log("📝 Creating complete subscription at:", url, "Plan ID:", subscriptionPlanId)
+      
+      const requestBody: any = { 
+        subscriptionPlanId, 
+        startDate, 
+        sessions 
+      }
+      
+      // Include country if provided for timezone handling
+      if (country) {
+        requestBody.userCountry = country // Backend expects 'userCountry' not 'country'
+      }
+      
       const res = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${jwt}`,
         },
-        body: JSON.stringify({ subscriptionPlanId, startDate, sessions }),
+        body: JSON.stringify(requestBody),
       })
-      console.log("📝 Complete subscription response status:", res.status)
       const body = await parseJson(res)
-      console.log("📝 Complete subscription response body:", body)
       
       if (!res.ok) {
         // Handle specific case of existing subscription (409 Conflict)
         if (res.status === 409 && body?.message?.includes('already have an active subscription')) {
-          console.log("ℹ️ User already has an active subscription to this plan")
           return { success: false, error: "You already have an active subscription to this plan" }
         }
         
-        console.error("❌ Complete subscription creation failed:", body)
         let errorMsg = body?.message || "Failed to create complete subscription"
         return { success: false, error: errorMsg }
       }
       
-      console.log("✅ Complete subscription created successfully!")
       return { success: true, subscription: body?.data?.subscription || body }
     } catch (e: any) {
-      console.error("🚨 Complete subscription network error:", e)
       return { success: false, error: e?.message || "Network error creating complete subscription" }
     }
   },
@@ -263,7 +295,6 @@ export const AppointmentAPI = {
   ): Promise<{ success: true; subscriptionId: string } | ApiFailure> {
     try {
       const url = `${getBaseUrl()}/user/subscriptions`
-      console.log("📝 Creating subscription at:", url, "Plan ID:", subscriptionPlanId, "Start:", startDate)
       const res = await fetch(url, {
         method: "POST",
         headers: {
@@ -272,12 +303,9 @@ export const AppointmentAPI = {
         },
         body: JSON.stringify({ subscriptionPlanId, startDate }),
       })
-      console.log("📝 Subscription response status:", res.status)
       const body = await parseJson(res)
-      console.log("📝 Subscription response body:", body)
       
       if (!res.ok) {
-        console.error("❌ Subscription creation failed:", body)
         let errorMsg = "Failed to create subscription"
         
         if (body?.message) {
@@ -309,14 +337,11 @@ export const AppointmentAPI = {
                    body?._id
       
       if (!subId) {
-        console.error("❌ Subscription ID missing in response:", body)
         return { success: false, error: "Subscription ID missing in response" }
       }
       
-      console.log("✅ Subscription created successfully, ID:", subId)
       return { success: true, subscriptionId: String(subId) }
     } catch (e: any) {
-      console.error("🚨 Subscription creation network error:", e)
       return { success: false, error: e?.message || "Network error creating subscription" }
     }
   },
@@ -337,7 +362,6 @@ export const AppointmentAPI = {
   ): Promise<ApiSuccess<unknown> | ApiFailure> {
     try {
       const url = `${getBaseUrl()}/user/sessions`
-      console.log("📅 Creating session at:", url, "Subscription:", subscriptionId, "Date:", date, "Time:", time)
       const res = await fetch(url, {
         method: "POST",
         headers: {
@@ -346,29 +370,19 @@ export const AppointmentAPI = {
         },
         body: JSON.stringify({ subscriptionId, date, time, notes }),
       })
-      console.log("📅 Session response status:", res.status)
       
       // Get raw response text first
       const rawText = await res.text()
-      console.log("📅 Session raw response:", rawText)
       
       // Try to parse as JSON
       let body
       try {
         body = rawText ? JSON.parse(rawText) : {}
       } catch (e) {
-        console.warn("📅 Failed to parse response as JSON:", e)
         body = { message: rawText || "Empty response" }
       }
       
-      console.log("📅 Session parsed body:", body)
-      
       if (!res.ok) {
-        console.warn("⚠️ Session creation failed:")
-        console.warn("Status:", res.status, res.statusText)
-        console.warn("Headers:", Object.fromEntries(res.headers.entries()))
-        console.warn("Body:", body)
-        
         let errorMsg = "Failed to create session"
         
         if (body?.message) {
@@ -394,10 +408,8 @@ export const AppointmentAPI = {
         return { success: false, error: errorMsg }
       }
       
-      console.log("✅ Session created successfully")
       return { success: true, data: body }
     } catch (e: any) {
-      console.error("🚨 Session creation network error:", e)
       return { success: false, error: e?.message || "Network error creating session" }
     }
   },
@@ -418,8 +430,6 @@ export const AppointmentAPI = {
   ): Promise<ApiSuccess<unknown> | ApiFailure> {
     try {
       const url = `${getBaseUrl()}/user/sessions/bulk`
-      console.log("📅 Creating bulk sessions at:", url, "Subscription:", subscriptionId, "Sessions count:", sessions.length)
-      console.log("📅 Sessions data:", sessions)
       
       const res = await fetch(url, {
         method: "POST",
@@ -429,29 +439,19 @@ export const AppointmentAPI = {
         },
         body: JSON.stringify({ subscriptionId, sessions }),
       })
-      console.log("📅 Bulk sessions response status:", res.status)
       
       // Get raw response text first
       const rawText = await res.text()
-      console.log("📅 Bulk sessions raw response:", rawText)
       
       // Try to parse as JSON
       let body
       try {
         body = rawText ? JSON.parse(rawText) : {}
       } catch (e) {
-        console.warn("📅 Failed to parse response as JSON:", e)
         body = { message: rawText || "Empty response" }
       }
       
-      console.log("📅 Bulk sessions parsed body:", body)
-      
       if (!res.ok) {
-        console.warn("⚠️ Bulk sessions creation failed:")
-        console.warn("Status:", res.status, res.statusText)
-        console.warn("Headers:", Object.fromEntries(res.headers.entries()))
-        console.warn("Body:", body)
-        
         let errorMsg = "Failed to create sessions"
         
         if (body?.message) {
@@ -477,10 +477,8 @@ export const AppointmentAPI = {
         return { success: false, error: errorMsg }
       }
       
-      console.log("✅ Bulk sessions created successfully")
       return { success: true, data: body }
     } catch (e: any) {
-      console.warn("⚠️ Bulk sessions creation network error:", e)
       return { success: false, error: e?.message || "Network error creating bulk sessions" }
     }
   },
@@ -492,31 +490,23 @@ export const AppointmentAPI = {
         ? `${getBaseUrl()}/sessions/booked?date=${date}`
         : `${getBaseUrl()}/sessions/booked`
       
-      console.log("📅 Fetching booked slots from:", url)
       const res = await fetch(url, { cache: "no-store" })
-      console.log("📅 Booked slots response status:", res.status)
       
       // If endpoint doesn't exist (404), return empty array
       if (res.status === 404) {
-        console.log("📅 Booked slots endpoint not implemented yet - returning empty array")
         return { success: true, bookedSlots: [] }
       }
       
       const body = await parseJson(res)
-      console.log("📅 Booked slots response body:", body)
       
       if (!res.ok) {
-        const errorMessage = body?.message || body?.error || `Failed to fetch booked slots (${res.status})`
-        console.log("❌ Booked slots fetch error:", errorMessage)
         // Return empty array instead of error for non-critical feature
         return { success: true, bookedSlots: [] }
       }
 
       const bookedSlots = body?.data?.bookedSlots || body?.bookedSlots || []
-      console.log("✅ Booked slots fetched successfully:", bookedSlots)
       return { success: true, bookedSlots }
     } catch (e: any) {
-      console.warn("� Booked slots fetch network error (endpoint might not exist):", e)
       // Return empty array instead of error - this is not critical functionality
       return { success: true, bookedSlots: [] }
     }

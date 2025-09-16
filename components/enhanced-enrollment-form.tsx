@@ -46,57 +46,200 @@ const EnhancedEnrollmentForm = () => {
   const [isLoadingPlans, setIsLoadingPlans] = useState(false)
   const [bookedSlots, setBookedSlots] = useState<{ date: string; time: string }[]>([])
   const [isLoadingSlots, setIsLoadingSlots] = useState(false)
+  const [countries, setCountries] = useState<Array<{value: string, label: string}>>([])
+  const [loadingCountries, setLoadingCountries] = useState(false)
 
   useEffect(() => {
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
     setUserTimezone(timezone)
-    loadPlans()
-    loadBookedSlots() // Now backend supports this endpoint!
-  }, [])
+    
+    // Initialize data loading with optimized batch loading
+    initializeData()
+    
+    // If user is logged in, get their country from backend and update timezone
+    if (jwtToken && isLoggedInUser) {
+      fetchUserProfileAndUpdateTimezone()
+    }
+  }, [jwtToken, isLoggedInUser])
 
-  // Load booked slots to prevent conflicts
-  const loadBookedSlots = async () => {
-    setIsLoadingSlots(true)
+  // Optimized data initialization - load all initial data in parallel
+  const initializeData = async () => {
     try {
-      const result = await AppointmentAPI.getBookedSlots()
-      if (result.success) {
-        console.log("Booked slots loaded:", result.bookedSlots)
-        setBookedSlots(result.bookedSlots)
+      // Load all initial data in parallel instead of sequential calls
+      const [plansResult, slotsResult, countriesResult] = await Promise.all([
+        AppointmentAPI.getPlans().catch(() => ({ success: false })),
+        AppointmentAPI.getBookedSlots().catch(() => ({ success: false, bookedSlots: [] })),
+        fetchCountriesData().catch(() => null)
+      ])
+
+      // Handle plans
+      if (plansResult.success && 'plans' in plansResult) {
+        setPlans(plansResult.plans)
+      }
+      setIsLoadingPlans(false)
+
+      // Handle booked slots
+      if (slotsResult.success && 'bookedSlots' in slotsResult) {
+        setBookedSlots(slotsResult.bookedSlots)
       } else {
-        console.error("Failed to load booked slots:", result.error)
         setBookedSlots([])
       }
-    } catch (error) {
-      console.error("Error loading booked slots:", error)
-      setBookedSlots([])
-    } finally {
       setIsLoadingSlots(false)
+
+      // Handle countries
+      if (countriesResult) {
+        setCountries(countriesResult)
+      } else {
+        // Fallback countries if API fails
+        setCountries([
+          { value: "", label: "Select your country" },
+          { value: "United States", label: "🇺🇸 United States" },
+          { value: "United Kingdom", label: "🇬🇧 United Kingdom" },
+          { value: "Canada", label: "🇨🇦 Canada" },
+          { value: "Australia", label: "🇦🇺 Australia" },
+          { value: "Germany", label: "🇩🇪 Germany" },
+          { value: "France", label: "🇫🇷 France" },
+          { value: "Saudi Arabia", label: "🇸🇦 Saudi Arabia" },
+          { value: "UAE", label: "🇦🇪 UAE" },
+          { value: "Egypt", label: "🇪🇬 Egypt" },
+          { value: "Pakistan", label: "🇵🇰 Pakistan" },
+          { value: "India", label: "🇮🇳 India" },
+          { value: "Malaysia", label: "🇲🇾 Malaysia" },
+          { value: "Indonesia", label: "🇮🇩 Indonesia" },
+          { value: "Turkey", label: "🇹🇷 Turkey" },
+          { value: "other", label: "🌍 Other" },
+        ])
+      }
+      setLoadingCountries(false)
+    } catch (error) {
+      // Set defaults if everything fails
+      setIsLoadingPlans(false)
+      setIsLoadingSlots(false)
+      setLoadingCountries(false)
     }
   }
 
-  const loadPlans = async () => {
-    setIsLoadingPlans(true)
+  // Separate function for countries API to make it reusable
+  const fetchCountriesData = async () => {
+    const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1'
+    
     try {
-      const result = await AppointmentAPI.getPlans()
-      if (result.success) {
-        console.log("Plans loaded:", result.plans)
-        setPlans(result.plans)
+      // Try popular countries first
+      let response = await fetch(`${apiBaseUrl}/countries/popular`)
+      let data = await response.json()
+      
+      if (data.status === 'success' && data.data && data.data.popularCountries) {
+        return [
+          { value: "", label: "Select your country" },
+          ...data.data.popularCountries.map((country: any) => ({
+            value: country.name,
+            label: `🌍 ${country.name}`
+          }))
+        ]
       } else {
-        console.error("Failed to load plans:", result.error)
-        // Keep the fallback static plans
+        // Try all countries if popular fails
+        response = await fetch(`${apiBaseUrl}/countries`)
+        data = await response.json()
+        
+        if (data.status === 'success' && data.data && data.data.countries) {
+          return [
+            { value: "", label: "Select your country" },
+            ...data.data.countries.map((country: any) => ({
+              value: country.name,
+              label: `🌍 ${country.name}`
+            }))
+          ]
+        }
       }
     } catch (error) {
-      console.error("Error loading plans:", error)
-    } finally {
-      setIsLoadingPlans(false)
+      // Return null to use fallback countries
+      return null
+    }
+    return null
+  }
+
+  // Fetch user profile from database and update timezone
+  const fetchUserProfileAndUpdateTimezone = async (token?: string) => {
+    try {
+      const authToken = token || jwtToken
+      if (!authToken) {
+        return
+      }
+      
+      const result = await AppointmentAPI.getUserProfile(authToken)
+      
+      if (result.success && result.user) {
+        const userCountry = result.user.country
+        const userTimezoneFromDB = result.user.timezone
+        
+        if (userCountry) {
+          // Update form data with country from database
+          setFormData((prev) => ({
+            ...prev,
+            personal: {
+              ...prev.personal,
+              country: userCountry,
+              firstName: result.user.firstName || prev.personal.firstName,
+              lastName: result.user.lastName || prev.personal.lastName,
+              phone: result.user.phone || prev.personal.phone,
+              gender: result.user.gender || prev.personal.gender,
+            }
+          }))
+          
+          // Use timezone directly from database if available, otherwise fetch from countries API
+          if (userTimezoneFromDB) {
+            setUserTimezone(userTimezoneFromDB)
+          } else {
+            await updateTimezoneFromUserCountry(userCountry)
+          }
+        }
+      }
+    } catch (error) {
+      // Silent error handling
+    }
+  }
+
+  // Watch for country changes and update timezone
+  useEffect(() => {
+    const selectedCountry = formData.personal.country
+    if (selectedCountry && selectedCountry !== 'other') {
+      updateTimezoneFromUserCountry(selectedCountry)
+    }
+  }, [formData.personal.country])
+
+
+
+  // Update timezone based on user's selected country
+  const updateTimezoneFromUserCountry = async (countryName?: string) => {
+    try {
+      const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1'
+      
+      // Use the provided country or get from form data
+      const userCountry = countryName || formData.personal.country
+      
+      if (userCountry && userCountry !== 'other') {
+        const response = await fetch(`${apiBaseUrl}/countries/${encodeURIComponent(userCountry)}/timezone`)
+        const data = await response.json()
+        
+        if (data.status === 'success' && data.data.timezone) {
+          setUserTimezone(data.data.timezone)
+        }
+      }
+    } catch (error) {
+      // Silent error handling - fallback to browser timezone
     }
   }
 
   const sendOtp = async () => {
-    if (!email || !email.includes("@")) {
-      showToast("Please enter a valid email address", "error")
+    // Enhanced email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!email || !emailRegex.test(email)) {
+      showToast("يرجى إدخال عنوان بريد إلكتروني صحيح / Please enter a valid email address", "error")
       return
     }
+
+    // Prevent excessive requests
+    if (isSendingOtp) return
 
     setIsSendingOtp(true)
     try {
@@ -105,34 +248,34 @@ const EnhancedEnrollmentForm = () => {
         : await AppointmentAPI.sendOtp(email)
 
       if (result.success) {
-        console.log("[OTP] Sent successfully to:", email)
         setOtpSent(true)
-        showToast(`${isLogin ? 'Login' : 'Registration'} OTP sent to your email address!`, "success")
+        showToast(`${isLogin ? 'تم إرسال رمز تسجيل الدخول / Login' : 'تم إرسال رمز التسجيل / Registration'} OTP sent to your email address!`, "success")
       } else {
-        console.error("Failed to send OTP:", result.error)
-        showToast(`Failed to send OTP: ${result.error}`, "error")
+        showToast(`فشل في إرسال الرمز / Failed to send OTP: ${result.error}`, "error")
       }
     } catch (error) {
-      console.error("OTP sending error:", error)
-      showToast("Failed to send OTP. Please try again.", "error")
+      showToast("فشل في إرسال الرمز. يرجى المحاولة مرة أخرى / Failed to send OTP. Please try again.", "error")
     } finally {
       setIsSendingOtp(false)
     }
   }
 
   const verifyOtp = async () => {
-    if (!otp || otp.length !== 6) {
-      showToast("Please enter a valid 6-digit OTP", "error")
+    // Enhanced OTP validation
+    const otpRegex = /^\d{6}$/
+    if (!otp || !otpRegex.test(otp)) {
+      showToast("يرجى إدخال رمز صحيح مكون من 6 أرقام / Please enter a valid 6-digit OTP", "error")
       return
     }
+
+    // Prevent double submission
+    if (isVerifyingOtp) return
 
     setIsVerifyingOtp(true)
     try {
       const result = await AppointmentAPI.verifyOtp(email, otp)
 
       if (result.success) {
-        console.log("[OTP] Verified successfully for:", email)
-        
         // Set email in form data first
         setFormData((prev) => ({
           ...prev,
@@ -143,48 +286,82 @@ const EnhancedEnrollmentForm = () => {
           // Login flow: always go to package selection
           setJwtToken(result.token)
           setIsLoggedInUser(true)
-          showToast("Login successful! Welcome back.", "success")
+          showToast("تم تسجيل الدخول بنجاح! مرحباً بك مرة أخرى / Login successful! Welcome back.", "success")
+          
+          // For existing users, get their profile from database and update timezone
+          setTimeout(() => fetchUserProfileAndUpdateTimezone(result.token), 500)
+          
           setCurrentStep(3) // Go to package selection
         } else {
           // Registration flow: check token type
           if (result.tempToken) {
             // New user - needs to complete personal info
             setJwtToken(result.tempToken)
-            showToast("OTP verified! Please complete your personal information.", "success")
+            showToast("تم التحقق من الرمز! يرجى إكمال معلوماتك الشخصية / OTP verified! Please complete your personal information.", "success")
             setCurrentStep(2) // Go to personal info
           } else if (result.token) {
             // User already exists but tried to register - treat as login
             setJwtToken(result.token)
             setIsLoggedInUser(true)
-            showToast("Welcome back! You already have an account.", "info")
+            showToast("مرحباً بك مرة أخرى! لديك حساب بالفعل / Welcome back! You already have an account.", "info")
+            
+            // For existing users, get profile from database and update timezone
+            setTimeout(() => fetchUserProfileAndUpdateTimezone(result.token), 500)
+            
             setCurrentStep(3) // Go to package selection
           } else {
-            showToast("Unable to complete verification. Please try again.", "error")
+            showToast("غير قادر على إكمال التحقق. يرجى المحاولة مرة أخرى / Unable to complete verification. Please try again.", "error")
             return
           }
         }
       } else {
-        console.error("OTP verification failed:", result.error)
-        showToast(`OTP verification failed: ${result.error}`, "error")
+        showToast(`فشل في التحقق من الرمز / OTP verification failed: ${result.error}`, "error")
       }
     } catch (error) {
-      console.error("OTP verification error:", error)
-      showToast("OTP verification failed. Please try again.", "error")
+      showToast("فشل في التحقق من الرمز. يرجى المحاولة مرة أخرى / OTP verification failed. Please try again.", "error")
     } finally {
       setIsVerifyingOtp(false)
     }
   }
 
   const fetchAvailableSlots = async (date: string) => {
-    // Generate available slots for the day
+    // Generate available slots with timezone conversion from Egypt time to user's local time
     const allSlots: string[] = []
-    for (let hour = 8; hour < 20; hour++) {
-      for (let minute = 0; minute < 60; minute += 30) {
-        const time = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`
-        allSlots.push(time)
+    
+    // Define working hours in Egypt timezone (Cairo)
+    const egyptStartHour = 8   // 8:00 AM Egypt time
+    const egyptEndHour = 19   // 7:00 PM Egypt time (last slot at 7:30 PM)
+    const egyptEndMinute = 30 // 7:30 PM Egypt time
+    
+    // Get user's selected timezone from state (not browser timezone)
+    const selectedUserTimezone = userTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone
+    
+    // Better approach: Use proper timezone conversion with Intl.DateTimeFormat
+    for (let egyptHour = egyptStartHour; egyptHour <= egyptEndHour; egyptHour++) {
+      const maxMinute = egyptHour === egyptEndHour ? egyptEndMinute : 30
+      
+      for (let minute = 0; minute <= maxMinute; minute += 30) {
+        // Create a date object for the Cairo time we want
+        const cairoTimeString = `${String(egyptHour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+        
+        // More direct approach: create the exact time in Cairo and show what it is in user timezone
+        const cairoDateString = `2024-01-01T${cairoTimeString}:00`
+        const cairoTime = new Date(cairoDateString + '+02:00') // Cairo is UTC+2
+        
+        const userTime = cairoTime.toLocaleString('en-US', {
+          timeZone: selectedUserTimezone,
+          hour12: false,
+          hour: '2-digit',
+          minute: '2-digit'
+        })
+        
+        allSlots.push(userTime)
       }
     }
-    setAvailableSlots(allSlots)
+    
+    // Sort slots by time and remove duplicates
+    const uniqueSlots = [...new Set(allSlots)].sort()
+    setAvailableSlots(uniqueSlots)
   }
 
   const submitEnrollment = async () => {
@@ -201,6 +378,13 @@ const EnhancedEnrollmentForm = () => {
         return false
       }
 
+      // Ensure user country is set for timezone handling
+      let userCountry = formData.personal.country
+      if (!userCountry) {
+        showToast("Country information is required. Please complete your profile.", "error")
+        return false
+      }
+
       // Create complete subscription with plan and all sessions in one call
       const today = new Date()
       const startDate = today.toISOString().split('T')[0] // YYYY-MM-DD format
@@ -211,34 +395,37 @@ const EnhancedEnrollmentForm = () => {
         notes: `${formData.package.name} session`
       }))
 
-      console.log("Creating complete subscription for plan:", formData.package.planId)
-      console.log("Sessions:", sessionsData)
-      
       const result = await AppointmentAPI.createCompleteSubscription(jwtToken, {
         subscriptionPlanId: formData.package.planId,
         startDate: startDate,
-        sessions: sessionsData
+        sessions: sessionsData,
+        country: userCountry
       })
 
       if (!result.success) {
-        console.error("Complete subscription creation failed:", result.error)
-        
         // Check if the error is about existing active subscription
-        if (result.error && typeof result.error === 'string' && 
-            result.error.toLowerCase().includes('already have an active subscription')) {
-          showToast("⚠️ You already have an active subscription to this plan! Contact support to modify your existing subscription or choose a different plan.", "error")
+        if (result.error && typeof result.error === 'string') {
+          if (result.error.toLowerCase().includes('already have an active subscription')) {
+            showToast("⚠️ لديك اشتراك فعال بالفعل في هذه الخطة! / You already have an active subscription to this plan! تواصل مع الدعم لتعديل اشتراكك أو اختر خطة مختلفة / Contact support to modify your subscription or choose a different plan.", "error")
+          } else if (result.error.toLowerCase().includes('plan not found')) {
+            showToast("❌ الخطة المحددة غير متوفرة / Selected plan is not available. يرجى اختيار خطة أخرى / Please choose another plan.", "error")
+          } else if (result.error.toLowerCase().includes('insufficient')) {
+            showToast("💳 مشكلة في الدفع / Payment issue. يرجى التحقق من بيانات الدفع / Please check your payment details.", "error")
+          } else if (result.error.toLowerCase().includes('network') || result.error.toLowerCase().includes('connection')) {
+            showToast("🌐 مشكلة في الاتصال / Network issue. يرجى التحقق من الاتصال والمحاولة مرة أخرى / Please check your connection and try again.", "error")
+          } else {
+            showToast(`❌ فشل في إنشاء الاشتراك / Failed to create subscription: ${result.error}`, "error")
+          }
         } else {
-          showToast(`Failed to create subscription: ${result.error}`, "error")
+          showToast("❌ حدث خطأ غير متوقع / An unexpected error occurred. يرجى المحاولة مرة أخرى / Please try again.", "error")
         }
         return false
       }
 
-      console.log("Complete subscription created successfully!", result.subscription)
-      showToast("Subscription created successfully! Welcome to Bayan School!", "success")
+      showToast("🎉 تم إنشاء الاشتراك بنجاح! أهلاً بك في مدرسة بيان / Subscription created successfully! Welcome to Bayan School!", "success")
       return true
     } catch (error) {
-      console.error("Enrollment submission error:", error)
-      showToast("An error occurred. Please try again.", "error")
+      showToast("⚠️ حدث خطأ / An error occurred. يرجى المحاولة مرة أخرى / Please try again.", "error")
       return false
     } finally {
       setIsSubmitting(false)
@@ -299,25 +486,6 @@ const EnhancedEnrollmentForm = () => {
     },
   ]
 
-  const countries = [
-    { value: "", label: "Select your country" },
-    { value: "US", label: "🇺🇸 United States" },
-    { value: "UK", label: "🇬🇧 United Kingdom" },
-    { value: "CA", label: "🇨🇦 Canada" },
-    { value: "AU", label: "🇦🇺 Australia" },
-    { value: "DE", label: "🇩🇪 Germany" },
-    { value: "FR", label: "🇫🇷 France" },
-    { value: "SA", label: "🇸🇦 Saudi Arabia" },
-    { value: "AE", label: "🇦🇪 UAE" },
-    { value: "EG", label: "🇪🇬 Egypt" },
-    { value: "PK", label: "🇵🇰 Pakistan" },
-    { value: "IN", label: "🇮🇳 India" },
-    { value: "MY", label: "🇲🇾 Malaysia" },
-    { value: "ID", label: "🇮🇩 Indonesia" },
-    { value: "TR", label: "🇹🇷 Turkey" },
-    { value: "other", label: "🌍 Other" },
-  ]
-
   const nextStep = async (step: number) => {
     if (step === 2) {
       // Validate personal info fields
@@ -331,15 +499,6 @@ const EnhancedEnrollmentForm = () => {
 
       // Only complete registration if user is truly new (has tempToken)
       if (jwtToken && !isLoggedInUser) {
-        console.log("🚀 Starting registration completion with data:", {
-          firstName: formData.personal.firstName,
-          lastName: formData.personal.lastName,
-          phone: formData.personal.phone,
-          gender: formData.personal.gender,
-          country: formData.personal.country,
-          token: jwtToken ? "present" : "missing"
-        })
-        
         try {
           const result = await AppointmentAPI.completeRegistration(jwtToken, {
             firstName: formData.personal.firstName,
@@ -349,30 +508,23 @@ const EnhancedEnrollmentForm = () => {
             country: formData.personal.country
           })
 
-          console.log("🎯 Registration completion result:", result)
-
           if (result.success) {
-            console.log("✅ Registration completed successfully!")
             setJwtToken(result.token) // Update with permanent token
             setIsLoggedInUser(true) // Now user is fully registered
             showToast("Registration completed successfully! 🎉", "success")
           } else {
             // Handle registration errors gracefully
-            console.log("❌ Registration error:", result.error)
             if (result.error && (result.error.includes("already completed") || result.error.includes("No authentication token"))) {
               // If registration completed but no token, or already completed,
               // treat as success and proceed
-              console.log("📝 Registration was successful, proceeding with existing token")
               showToast("Account setup completed! Please proceed to select your package.", "success")
               setIsLoggedInUser(true)
             } else {
               showToast(`Registration failed: ${result.error}`, "error")
-              console.error("❌ Full error details:", result)
               return
             }
           }
         } catch (error) {
-          console.error("🚨 Registration completion error:", error)
           showToast("Network error during registration. Please check your connection and try again.", "error")
           return
         }
@@ -382,6 +534,8 @@ const EnhancedEnrollmentForm = () => {
         showToast("Please select a package", "error")
         return
       }
+      // Update timezone when moving to scheduling step
+      setTimeout(() => updateTimezoneFromUserCountry(), 100)
     } else if (step === 4) {
       const totalRequired = maxSessions
       if (selectedSessions.length < totalRequired) {
@@ -410,10 +564,35 @@ const EnhancedEnrollmentForm = () => {
   }
 
   const updatePersonalInfo = (field: keyof PersonalInfo, value: string) => {
+    // Input sanitization for security
+    let sanitizedValue = value
+
+    // Basic input sanitization
+    if (typeof value === 'string') {
+      // Remove potentially dangerous characters
+      sanitizedValue = value.replace(/[<>'"]/g, '').trim()
+      
+      // Additional validation for phone numbers
+      if (field === 'phone') {
+        sanitizedValue = sanitizedValue.replace(/[^\d\s\-\+\(\)]/g, '')
+      }
+      
+      // Additional validation for names
+      if (field === 'firstName' || field === 'lastName') {
+        sanitizedValue = sanitizedValue.replace(/[^\p{L}\s\-']/gu, '')
+      }
+    }
+
     setFormData((prev) => ({
       ...prev,
-      personal: { ...prev.personal, [field]: value },
+      personal: { ...prev.personal, [field]: sanitizedValue },
     }))
+    
+    // Update timezone when country is changed
+    if (field === 'country' && sanitizedValue && sanitizedValue !== 'other') {
+      // Update timezone immediately with the new country value
+      setTimeout(() => updateTimezoneFromUserCountry(sanitizedValue), 100)
+    }
   }
 
   const selectPackage = (pkg: any) => {
@@ -522,8 +701,7 @@ const EnhancedEnrollmentForm = () => {
   const selectDate = async (date: string) => {
     setSelectedDate(date)
     await fetchAvailableSlots(date)
-    // Refresh booked slots when date changes
-    await loadBookedSlots()
+    // Refresh will happen automatically through state updates
   }
 
   // Helper function to format week range
@@ -849,7 +1027,9 @@ const EnhancedEnrollmentForm = () => {
               : ""
           }
         >
-          {displayTime}
+          <div className="flex flex-col">
+            <span>{displayTime}</span>
+          </div>
           {isBooked && <span className="block text-xs mt-1">Booked</span>}
           {isWeekLimitReached && !isBooked && <span className="block text-xs mt-1">Week Full</span>}
         </div>,
@@ -910,7 +1090,7 @@ const EnhancedEnrollmentForm = () => {
     setIsSubmitting(false)
     setIsLoadingSlots(false)
     // Reload fresh data
-    loadBookedSlots()
+    initializeData()
   }
 
   const monthNames = [
@@ -1165,12 +1345,17 @@ const EnhancedEnrollmentForm = () => {
                     onChange={(e) => updatePersonalInfo("country", e.target.value)}
                     aria-label="Select country"
                     title="Select your country"
+                    disabled={loadingCountries}
                   >
-                    {countries.map((country) => (
-                      <option key={country.value} value={country.value}>
-                        {country.label}
-                      </option>
-                    ))}
+                    {loadingCountries ? (
+                      <option value="">Loading countries...</option>
+                    ) : (
+                      countries.map((country) => (
+                        <option key={country.value} value={country.value}>
+                          {country.label}
+                        </option>
+                      ))
+                    )}
                   </select>
                 </div>
                 <div className="space-y-2">
@@ -1330,7 +1515,6 @@ const EnhancedEnrollmentForm = () => {
                 <span className="text-2xl mr-3">🌍</span>
                 <div>
                   <p className="font-semibold text-amber-800">Your timezone: {userTimezone}</p>
-                  <p className="text-sm text-amber-600">All times are displayed in your local timezone</p>
                 </div>
               </div>
             </div>

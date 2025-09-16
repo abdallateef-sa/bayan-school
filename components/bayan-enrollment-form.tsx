@@ -21,11 +21,104 @@ const BayanEnrollmentForm = () => {
   const [selectedSessions, setSelectedSessions] = useState<Session[]>([])
   const [maxSessions, setMaxSessions] = useState(0)
   const [userTimezone, setUserTimezone] = useState("")
+  const [countries, setCountries] = useState<Array<{value: string, label: string}>>([])
+  const [loadingCountries, setLoadingCountries] = useState(false)
 
   useEffect(() => {
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
     setUserTimezone(timezone)
+    // Load countries from API
+    fetchCountries()
   }, [])
+
+  const fetchCountries = async () => {
+    setLoadingCountries(true)
+    try {
+      // Get API base URL from environment variable
+      const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1'
+      console.log('Fetching countries from:', `${apiBaseUrl}/countries/popular`)
+      
+      // Try popular countries first
+      let response = await fetch(`${apiBaseUrl}/countries/popular`)
+      let data = await response.json()
+      
+      console.log('Countries API Response:', data)
+      
+      if (data.status === 'success' && data.data && data.data.popularCountries) {
+        const formattedCountries = [
+          { value: "", label: "Select your country" },
+          ...data.data.popularCountries.map((country: any) => ({
+            value: country.name,
+            label: `🌍 ${country.name}` // Using generic flag since API doesn't include flags
+          }))
+        ]
+        setCountries(formattedCountries)
+        console.log('Successfully loaded countries from API:', formattedCountries.length)
+      } else {
+        console.log('Popular countries failed, trying all countries...')
+        // Try all countries if popular fails
+        response = await fetch(`${apiBaseUrl}/countries`)
+        data = await response.json()
+        
+        if (data.status === 'success' && data.data && data.data.countries) {
+          const formattedCountries = [
+            { value: "", label: "Select your country" },
+            ...data.data.countries.map((country: any) => ({
+              value: country.name,
+              label: `🌍 ${country.name}`
+            }))
+          ]
+          setCountries(formattedCountries)
+          console.log('Successfully loaded all countries:', formattedCountries.length)
+        } else {
+          console.log('Both APIs failed, using fallback countries')
+          // Fallback to default countries if both APIs fail
+          setCountries([
+            { value: "", label: "Select your country" },
+            { value: "United States", label: "🇺🇸 United States" },
+            { value: "United Kingdom", label: "🇬🇧 United Kingdom" },
+            { value: "Canada", label: "🇨🇦 Canada" },
+            { value: "Australia", label: "🇦🇺 Australia" },
+            { value: "Germany", label: "🇩🇪 Germany" },
+            { value: "France", label: "🇫🇷 France" },
+            { value: "Saudi Arabia", label: "🇸🇦 Saudi Arabia" },
+            { value: "UAE", label: "🇦🇪 UAE" },
+            { value: "Egypt", label: "🇪🇬 Egypt" },
+            { value: "Pakistan", label: "🇵🇰 Pakistan" },
+            { value: "India", label: "🇮🇳 India" },
+            { value: "Malaysia", label: "🇲🇾 Malaysia" },
+            { value: "Indonesia", label: "🇮🇩 Indonesia" },
+            { value: "Turkey", label: "🇹🇷 Turkey" },
+            { value: "other", label: "🌍 Other" },
+          ])
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch countries:', error)
+      console.log('Using fallback countries due to error')
+      // Fallback to default countries
+      setCountries([
+        { value: "", label: "Select your country" },
+        { value: "United States", label: "🇺🇸 United States" },
+        { value: "United Kingdom", label: "🇬🇧 United Kingdom" },
+        { value: "Canada", label: "🇨🇦 Canada" },
+        { value: "Australia", label: "🇦🇺 Australia" },
+        { value: "Germany", label: "🇩🇪 Germany" },
+        { value: "France", label: "🇫🇷 France" },
+        { value: "Saudi Arabia", label: "🇸🇦 Saudi Arabia" },
+        { value: "UAE", label: "🇦🇪 UAE" },
+        { value: "Egypt", label: "🇪🇬 Egypt" },
+        { value: "Pakistan", label: "🇵🇰 Pakistan" },
+        { value: "India", label: "🇮🇳 India" },
+        { value: "Malaysia", label: "🇲🇾 Malaysia" },
+        { value: "Indonesia", label: "🇮🇩 Indonesia" },
+        { value: "Turkey", label: "🇹🇷 Turkey" },
+        { value: "other", label: "🌍 Other" },
+      ])
+    } finally {
+      setLoadingCountries(false)
+    }
+  }
 
   const packages = [
     {
@@ -79,25 +172,6 @@ const BayanEnrollmentForm = () => {
       popular: false,
       details: ["Custom duration", "Flexible scheduling", "8+ hours monthly", "Contact for setup"],
     },
-  ]
-
-  const countries = [
-    { value: "", label: "Select your country" },
-    { value: "US", label: "🇺🇸 United States" },
-    { value: "UK", label: "🇬🇧 United Kingdom" },
-    { value: "CA", label: "🇨🇦 Canada" },
-    { value: "AU", label: "🇦🇺 Australia" },
-    { value: "DE", label: "🇩🇪 Germany" },
-    { value: "FR", label: "🇫🇷 France" },
-    { value: "SA", label: "🇸🇦 Saudi Arabia" },
-    { value: "AE", label: "🇦🇪 UAE" },
-    { value: "EG", label: "🇪🇬 Egypt" },
-    { value: "PK", label: "🇵🇰 Pakistan" },
-    { value: "IN", label: "🇮🇳 India" },
-    { value: "MY", label: "🇲🇾 Malaysia" },
-    { value: "ID", label: "🇮🇩 Indonesia" },
-    { value: "TR", label: "🇹🇷 Turkey" },
-    { value: "other", label: "🌍 Other" },
   ]
 
   const sendEmail = () => {
@@ -214,13 +288,41 @@ const BayanEnrollmentForm = () => {
     if (!selectedDate) return []
 
     const slots: JSX.Element[] = []
-    const startHour = 8
-    const endHour = 20
-
-    for (let hour = startHour; hour < endHour; hour++) {
-      for (let minute = 0; minute < 60; minute += 30) {
-        const time = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`
-        const displayTime = formatTime(hour, minute)
+    
+    // Define working hours in Egypt timezone (Cairo)
+    const egyptStartHour = 8   // 8:00 AM Egypt time
+    const egyptEndHour = 19   // 7:00 PM Egypt time (last slot at 7:30 PM)
+    const egyptEndMinute = 30 // 7:30 PM Egypt time
+    
+    // Get user's timezone
+    const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+    
+    // Generate slots for the Egypt working hours and convert to user's timezone
+    for (let egyptHour = egyptStartHour; egyptHour <= egyptEndHour; egyptHour++) {
+      const maxMinute = egyptHour === egyptEndHour ? egyptEndMinute : 30
+      
+      for (let minute = 0; minute <= maxMinute; minute += 30) {
+        // Create a date object representing the Egypt time
+        const egyptDateTimeString = `${selectedDate}T${String(egyptHour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00+02:00`
+        const egyptDateTime = new Date(egyptDateTimeString)
+        
+        // Convert to user's local timezone
+        const userLocalDateTime = new Date(egyptDateTime.toLocaleString("en-US", { timeZone: userTimezone }))
+        
+        // Extract hour and minute in user's timezone
+        const userDateTimeFormatted = egyptDateTime.toLocaleString("en-US", { 
+          timeZone: userTimezone,
+          hour12: false,
+          hour: '2-digit',
+          minute: '2-digit'
+        })
+        
+        const [userHourStr, userMinuteStr] = userDateTimeFormatted.split(':')
+        const userHour = parseInt(userHourStr)
+        const userMinute = parseInt(userMinuteStr)
+        
+        const time = `${String(userHour).padStart(2, '0')}:${String(userMinute).padStart(2, '0')}`
+        const displayTime = formatTime(userHour, userMinute)
         const isSelected = selectedSessions.some((s) => s.date === selectedDate && s.time === time)
 
         slots.push(
@@ -233,7 +335,12 @@ const BayanEnrollmentForm = () => {
             }`}
             onClick={() => toggleTimeSlot(time)}
           >
-            {displayTime}
+            <div className="flex flex-col">
+              <span>{displayTime}</span>
+              <span className="text-xs opacity-75">
+                ({formatEgyptTime(egyptHour, minute)} Cairo)
+              </span>
+            </div>
           </div>,
         )
       }
@@ -242,6 +349,14 @@ const BayanEnrollmentForm = () => {
     return slots
   }
 
+  // Helper function to format Egypt time display
+  const formatEgyptTime = (hour: number, minute: number) => {
+    const period = hour >= 12 ? "PM" : "AM"
+    const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour
+    return `${displayHour}:${String(minute).padStart(2, '0')} ${period}`
+  }
+
+  // Enhanced formatTime function
   const formatTime = (hour: number, minute: number) => {
     const period = hour >= 12 ? "PM" : "AM"
     const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour
@@ -421,12 +536,17 @@ const BayanEnrollmentForm = () => {
                     onChange={(e) => updatePersonalInfo("country", e.target.value)}
                     aria-label="Select country"
                     title="Select your country"
+                    disabled={loadingCountries}
                   >
-                    {countries.map((country) => (
-                      <option key={country.value} value={country.value}>
-                        {country.label}
-                      </option>
-                    ))}
+                    {loadingCountries ? (
+                      <option value="">Loading countries...</option>
+                    ) : (
+                      countries.map((country) => (
+                        <option key={country.value} value={country.value}>
+                          {country.label}
+                        </option>
+                      ))
+                    )}
                   </select>
                 </div>
                 <div className="space-y-2">
@@ -578,7 +698,9 @@ const BayanEnrollmentForm = () => {
                 <span className="text-2xl mr-3">🌍</span>
                 <div>
                   <p className="font-semibold text-amber-800">Your timezone: {userTimezone}</p>
-                  <p className="text-sm text-amber-600">All times are displayed in your local timezone</p>
+                  <p className="text-sm text-amber-600">
+                    Available hours: 8:00 AM - 7:30 PM (Cairo time) • Times shown in your local timezone
+                  </p>
                 </div>
               </div>
             </div>
@@ -627,7 +749,7 @@ const BayanEnrollmentForm = () => {
                   })}
                 </h3>
                 <p className="text-gray-600 mb-6">
-                  Choose your preferred 30-minute sessions (combine for 60-minute sessions)
+                  Available hours: 8:00 AM - 7:30 PM Cairo time. Choose your preferred 30-minute sessions (times shown in your timezone)
                 </p>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
                   {generateTimeSlots()}
