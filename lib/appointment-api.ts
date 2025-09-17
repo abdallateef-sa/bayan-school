@@ -201,6 +201,36 @@ export const AppointmentAPI = {
     }
   },
 
+  // Get timezone for a country via backend
+  async getCountryTimezone(countryName: string): Promise<{ success: true; timezone: string } | ApiFailure> {
+    try {
+      const url = `${getBaseUrl()}/countries/${encodeURIComponent(countryName)}/timezone`
+      const res = await fetch(url)
+      if (!res.ok) return { success: false, error: `Failed to get country timezone (${res.status})` }
+      const body = await parseJson(res)
+      const timezone = body?.data?.timezone || body?.timezone
+      if (!timezone) return { success: false, error: 'Timezone not found in response' }
+      return { success: true, timezone }
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Network error fetching country timezone' }
+    }
+  },
+
+  // Optional: Directly query TimeZoneDB (requires NEXT_PUBLIC_TIMEZONEDB_API_KEY in env)
+  async getTimezoneFromTimeZoneDB(zoneName: string): Promise<{ success: true; data: any } | ApiFailure> {
+    try {
+      const apiKey = process.env.NEXT_PUBLIC_TIMEZONEDB_API_KEY
+      if (!apiKey) return { success: false, error: 'TimeZoneDB API key not configured' }
+      const url = `http://api.timezonedb.com/v2.1/get-time-zone?key=${apiKey}&format=json&by=zone&zone=${encodeURIComponent(zoneName)}`
+      const res = await fetch(url)
+      if (!res.ok) return { success: false, error: `TimeZoneDB request failed (${res.status})` }
+      const body = await parseJson(res)
+      return { success: true, data: body }
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Network error calling TimeZoneDB' }
+    }
+  },
+
   // Update user profile
   async updateUserProfile(
     jwt: string,

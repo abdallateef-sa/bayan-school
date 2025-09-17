@@ -31,90 +31,51 @@ const BayanEnrollmentForm = () => {
     fetchCountries()
   }, [])
 
+  // Fallback countries list used when backend is unavailable
+  const getDefaultCountries = () => ([
+    { value: "", label: "Select your country" },
+    { value: "United States", label: "🇺🇸 United States" },
+    { value: "United Kingdom", label: "🇬🇧 United Kingdom" },
+    { value: "Canada", label: "🇨🇦 Canada" },
+    { value: "Australia", label: "🇦🇺 Australia" },
+    { value: "Germany", label: "🇩🇪 Germany" },
+    { value: "France", label: "🇫🇷 France" },
+    { value: "Saudi Arabia", label: "🇸🇦 Saudi Arabia" },
+    { value: "UAE", label: "🇦🇪 UAE" },
+    { value: "Egypt", label: "🇪🇬 Egypt" },
+    { value: "Pakistan", label: "🇵🇰 Pakistan" },
+    { value: "India", label: "🇮🇳 India" },
+    { value: "Malaysia", label: "🇲🇾 Malaysia" },
+    { value: "Indonesia", label: "🇮🇩 Indonesia" },
+    { value: "Turkey", label: "🇹🇷 Turkey" },
+    { value: "other", label: "🌍 Other" },
+  ])
+
   const fetchCountries = async () => {
     setLoadingCountries(true)
     try {
-      // Get API base URL from environment variable
       const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1'
-      console.log('Fetching countries from:', `${apiBaseUrl}/countries/popular`)
-      
-      // Try popular countries first
-      let response = await fetch(`${apiBaseUrl}/countries/popular`)
-      let data = await response.json()
-      
-      console.log('Countries API Response:', data)
-      
-      if (data.status === 'success' && data.data && data.data.popularCountries) {
+      // Fetch all supported countries from backend - backend should provide IANA timezones per country
+      const response = await fetch(`${apiBaseUrl}/countries`)
+      const data = await response.json()
+
+      if (data?.status === 'success' && data?.data?.countries && Array.isArray(data.data.countries)) {
         const formattedCountries = [
           { value: "", label: "Select your country" },
-          ...data.data.popularCountries.map((country: any) => ({
+          ...data.data.countries.map((country: any) => ({
             value: country.name,
-            label: `🌍 ${country.name}` // Using generic flag since API doesn't include flags
+            label: `🌍 ${country.name}`
           }))
         ]
         setCountries(formattedCountries)
-        console.log('Successfully loaded countries from API:', formattedCountries.length)
+        console.log('Loaded countries from backend:', formattedCountries.length)
       } else {
-        console.log('Popular countries failed, trying all countries...')
-        // Try all countries if popular fails
-        response = await fetch(`${apiBaseUrl}/countries`)
-        data = await response.json()
-        
-        if (data.status === 'success' && data.data && data.data.countries) {
-          const formattedCountries = [
-            { value: "", label: "Select your country" },
-            ...data.data.countries.map((country: any) => ({
-              value: country.name,
-              label: `🌍 ${country.name}`
-            }))
-          ]
-          setCountries(formattedCountries)
-          console.log('Successfully loaded all countries:', formattedCountries.length)
-        } else {
-          console.log('Both APIs failed, using fallback countries')
-          // Fallback to default countries if both APIs fail
-          setCountries([
-            { value: "", label: "Select your country" },
-            { value: "United States", label: "🇺🇸 United States" },
-            { value: "United Kingdom", label: "🇬🇧 United Kingdom" },
-            { value: "Canada", label: "🇨🇦 Canada" },
-            { value: "Australia", label: "🇦🇺 Australia" },
-            { value: "Germany", label: "🇩🇪 Germany" },
-            { value: "France", label: "🇫🇷 France" },
-            { value: "Saudi Arabia", label: "🇸🇦 Saudi Arabia" },
-            { value: "UAE", label: "🇦🇪 UAE" },
-            { value: "Egypt", label: "🇪🇬 Egypt" },
-            { value: "Pakistan", label: "🇵🇰 Pakistan" },
-            { value: "India", label: "🇮🇳 India" },
-            { value: "Malaysia", label: "🇲🇾 Malaysia" },
-            { value: "Indonesia", label: "🇮🇩 Indonesia" },
-            { value: "Turkey", label: "🇹🇷 Turkey" },
-            { value: "other", label: "🌍 Other" },
-          ])
-        }
+        console.warn('Invalid countries response, falling back to defaults')
+        setCountries(getDefaultCountries())
       }
     } catch (error) {
       console.error('Failed to fetch countries:', error)
-      console.log('Using fallback countries due to error')
-      // Fallback to default countries
-      setCountries([
-        { value: "", label: "Select your country" },
-        { value: "United States", label: "🇺🇸 United States" },
-        { value: "United Kingdom", label: "🇬🇧 United Kingdom" },
-        { value: "Canada", label: "🇨🇦 Canada" },
-        { value: "Australia", label: "🇦🇺 Australia" },
-        { value: "Germany", label: "🇩🇪 Germany" },
-        { value: "France", label: "🇫🇷 France" },
-        { value: "Saudi Arabia", label: "🇸🇦 Saudi Arabia" },
-        { value: "UAE", label: "🇦🇪 UAE" },
-        { value: "Egypt", label: "🇪🇬 Egypt" },
-        { value: "Pakistan", label: "🇵🇰 Pakistan" },
-        { value: "India", label: "🇮🇳 India" },
-        { value: "Malaysia", label: "🇲🇾 Malaysia" },
-        { value: "Indonesia", label: "🇮🇩 Indonesia" },
-        { value: "Turkey", label: "🇹🇷 Turkey" },
-        { value: "other", label: "🌍 Other" },
-      ])
+      setCountries(getDefaultCountries())
     } finally {
       setLoadingCountries(false)
     }

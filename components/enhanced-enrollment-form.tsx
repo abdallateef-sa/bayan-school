@@ -11,6 +11,51 @@ const EnhancedEnrollmentForm = () => {
     package: {} as SelectedPackage,
     sessions: [],
   })
+  // Normalize booked slot shapes coming from API to { date: YYYY-MM-DD, time: HH:MM }
+  const normalizeBookedSlots = (items: any[]) => {
+    const tz = userTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone
+    return (items || []).map((s: any) => {
+      if (!s) return null
+      // Prefer canonical UTC instant when available and compute viewer-local date/time from it.
+      if (s.utcTime) {
+        try {
+          const d = new Date(s.utcTime)
+          const dateStr = d.toLocaleDateString('en-CA', { timeZone: tz }) // YYYY-MM-DD
+          const timeStr = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz })
+          return { date: dateStr, time: timeStr, utcTime: s.utcTime }
+        } catch (e) {
+          // fallthrough to other shapes below
+        }
+      }
+      // If no utcTime, fall back to originalUserDate/originalUserTime or generic date/time
+      if (s.originalUserDate && s.originalUserTime) {
+        const parts = String(s.originalUserTime).split(':')
+        const hh = parts[0].padStart(2, '0')
+        const mm = (parts[1] || '00').slice(0,2)
+        return { date: s.originalUserDate, time: `${hh}:${mm}`, utcTime: s.utcTime || undefined }
+      }
+      if (s.date && s.time) {
+        return { date: s.date, time: s.time, utcTime: s.utcTime || undefined }
+      }
+      return null
+    }).filter(Boolean) as Array<{date: string, time: string, utcTime?: string}>
+  }
+
+  // Normalize time string (accepts "7:00", "07:00", "7:00 AM") => returns HH:MM (24h)
+  const to24 = (t: string) => {
+    if (!t || typeof t !== 'string') return ''
+    const m = t.trim().match(/^(\d{1,2}):(\d{2})(?:\s*(AM|PM))?$/i)
+    if (!m) return t
+    let hh = parseInt(m[1], 10)
+    const mm = m[2]
+    const ampm = m[3]
+    if (ampm) {
+      const up = ampm.toUpperCase()
+      if (up === 'PM' && hh < 12) hh += 12
+      if (up === 'AM' && hh === 12) hh = 0
+    }
+    return `${String(hh).padStart(2, '0')}:${mm}`
+  }
   const [email, setEmail] = useState("")
   const [otp, setOtp] = useState("")
   const [otpSent, setOtpSent] = useState(false)
@@ -41,10 +86,10 @@ const EnhancedEnrollmentForm = () => {
   const [maxSessions, setMaxSessions] = useState(0)
   const [userTimezone, setUserTimezone] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [availableSlots, setAvailableSlots] = useState<string[]>([])
+  const [availableSlots, setAvailableSlots] = useState<any[]>([])
   const [plans, setPlans] = useState<any[]>([])
   const [isLoadingPlans, setIsLoadingPlans] = useState(false)
-  const [bookedSlots, setBookedSlots] = useState<{ date: string; time: string }[]>([])
+  const [bookedSlots, setBookedSlots] = useState<Array<{ date: string; time: string; utcTime?: string }>>([])
   const [isLoadingSlots, setIsLoadingSlots] = useState(false)
   const [countries, setCountries] = useState<Array<{value: string, label: string}>>([])
   const [loadingCountries, setLoadingCountries] = useState(false)
@@ -78,9 +123,26 @@ const EnhancedEnrollmentForm = () => {
       }
       setIsLoadingPlans(false)
 
-      // Handle booked slots
+      // Handle booked slots (normalize and keep current/future bookings)
       if (slotsResult.success && 'bookedSlots' in slotsResult) {
-        setBookedSlots(slotsResult.bookedSlots)
+        const normalized = normalizeBookedSlots(slotsResult.bookedSlots || [])
+        const today = new Date()
+        today.setHours(0,0,0,0)
+        const futureBooked = normalized.filter((s: any) => {
+          try {
+            const d = new Date(s.date)
+            d.setHours(0,0,0,0)
+            return d >= today
+          } catch (e) {
+            return false
+          }
+        })
+        // dedupe and preserve utcTime when available
+        const uniq = Array.from(new Set(futureBooked.map((m: any) => `${m.date}||${m.time}||${m.utcTime || ''}`))).map(k => {
+          const [date, time, utc] = k.split('||')
+          return { date, time, utcTime: utc || undefined }
+        })
+        setBookedSlots(uniq)
       } else {
         setBookedSlots([])
       }
@@ -124,32 +186,18 @@ const EnhancedEnrollmentForm = () => {
     const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1'
     
     try {
-      // Try popular countries first
-      let response = await fetch(`${apiBaseUrl}/countries/popular`)
-      let data = await response.json()
-      
-      if (data.status === 'success' && data.data && data.data.popularCountries) {
+      // Fetch countries from single endpoint (server provides /countries)
+      const response = await fetch(`${apiBaseUrl}/countries`)
+      const data = await response.json()
+
+      if (data && (data.status === 'success' && data.data && data.data.countries)) {
         return [
           { value: "", label: "Select your country" },
-          ...data.data.popularCountries.map((country: any) => ({
+          ...data.data.countries.map((country: any) => ({
             value: country.name,
             label: `🌍 ${country.name}`
           }))
         ]
-      } else {
-        // Try all countries if popular fails
-        response = await fetch(`${apiBaseUrl}/countries`)
-        data = await response.json()
-        
-        if (data.status === 'success' && data.data && data.data.countries) {
-          return [
-            { value: "", label: "Select your country" },
-            ...data.data.countries.map((country: any) => ({
-              value: country.name,
-              label: `🌍 ${country.name}`
-            }))
-          ]
-        }
       }
     } catch (error) {
       // Return null to use fallback countries
@@ -234,7 +282,7 @@ const EnhancedEnrollmentForm = () => {
     // Enhanced email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     if (!email || !emailRegex.test(email)) {
-      showToast("يرجى إدخال عنوان بريد إلكتروني صحيح / Please enter a valid email address", "error")
+      showToast("Please enter a valid email address", "error")
       return
     }
 
@@ -249,12 +297,12 @@ const EnhancedEnrollmentForm = () => {
 
       if (result.success) {
         setOtpSent(true)
-        showToast(`${isLogin ? 'تم إرسال رمز تسجيل الدخول / Login' : 'تم إرسال رمز التسجيل / Registration'} OTP sent to your email address!`, "success")
+    showToast(`${isLogin ? 'Login' : 'Registration'} OTP sent to your email address!`, "success")
       } else {
-        showToast(`فشل في إرسال الرمز / Failed to send OTP: ${result.error}`, "error")
+  showToast(`Failed to send OTP: ${result.error}`, "error")
       }
     } catch (error) {
-      showToast("فشل في إرسال الرمز. يرجى المحاولة مرة أخرى / Failed to send OTP. Please try again.", "error")
+  showToast("Failed to send OTP. Please try again.", "error")
     } finally {
       setIsSendingOtp(false)
     }
@@ -264,7 +312,7 @@ const EnhancedEnrollmentForm = () => {
     // Enhanced OTP validation
     const otpRegex = /^\d{6}$/
     if (!otp || !otpRegex.test(otp)) {
-      showToast("يرجى إدخال رمز صحيح مكون من 6 أرقام / Please enter a valid 6-digit OTP", "error")
+      showToast("Please enter a valid 6-digit OTP", "error")
       return
     }
 
@@ -286,7 +334,7 @@ const EnhancedEnrollmentForm = () => {
           // Login flow: always go to package selection
           setJwtToken(result.token)
           setIsLoggedInUser(true)
-          showToast("تم تسجيل الدخول بنجاح! مرحباً بك مرة أخرى / Login successful! Welcome back.", "success")
+          showToast("Login successful! Welcome back.", "success")
           
           // For existing users, get their profile from database and update timezone
           setTimeout(() => fetchUserProfileAndUpdateTimezone(result.token), 500)
@@ -297,71 +345,82 @@ const EnhancedEnrollmentForm = () => {
           if (result.tempToken) {
             // New user - needs to complete personal info
             setJwtToken(result.tempToken)
-            showToast("تم التحقق من الرمز! يرجى إكمال معلوماتك الشخصية / OTP verified! Please complete your personal information.", "success")
+            showToast("OTP verified! Please complete your personal information.", "success")
             setCurrentStep(2) // Go to personal info
           } else if (result.token) {
             // User already exists but tried to register - treat as login
             setJwtToken(result.token)
             setIsLoggedInUser(true)
-            showToast("مرحباً بك مرة أخرى! لديك حساب بالفعل / Welcome back! You already have an account.", "info")
+            showToast("Welcome back! You already have an account.", "info")
             
             // For existing users, get profile from database and update timezone
             setTimeout(() => fetchUserProfileAndUpdateTimezone(result.token), 500)
             
             setCurrentStep(3) // Go to package selection
           } else {
-            showToast("غير قادر على إكمال التحقق. يرجى المحاولة مرة أخرى / Unable to complete verification. Please try again.", "error")
+            showToast("Unable to complete verification. Please try again.", "error")
             return
           }
         }
       } else {
-        showToast(`فشل في التحقق من الرمز / OTP verification failed: ${result.error}`, "error")
+        showToast(`OTP verification failed: ${result.error}`, "error")
       }
     } catch (error) {
-      showToast("فشل في التحقق من الرمز. يرجى المحاولة مرة أخرى / OTP verification failed. Please try again.", "error")
+      showToast("OTP verification failed. Please try again.", "error")
     } finally {
       setIsVerifyingOtp(false)
     }
   }
 
   const fetchAvailableSlots = async (date: string) => {
-    // Generate available slots with timezone conversion from Egypt time to user's local time
-    const allSlots: string[] = []
-    
-    // Define working hours in Egypt timezone (Cairo)
-    const egyptStartHour = 8   // 8:00 AM Egypt time
-    const egyptEndHour = 19   // 7:00 PM Egypt time (last slot at 7:30 PM)
-    const egyptEndMinute = 30 // 7:30 PM Egypt time
-    
-    // Get user's selected timezone from state (not browser timezone)
-    const selectedUserTimezone = userTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone
-    
-    // Better approach: Use proper timezone conversion with Intl.DateTimeFormat
-    for (let egyptHour = egyptStartHour; egyptHour <= egyptEndHour; egyptHour++) {
-      const maxMinute = egyptHour === egyptEndHour ? egyptEndMinute : 30
-      
-      for (let minute = 0; minute <= maxMinute; minute += 30) {
-        // Create a date object for the Cairo time we want
-        const cairoTimeString = `${String(egyptHour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
-        
-        // More direct approach: create the exact time in Cairo and show what it is in user timezone
-        const cairoDateString = `2024-01-01T${cairoTimeString}:00`
-        const cairoTime = new Date(cairoDateString + '+02:00') // Cairo is UTC+2
-        
-        const userTime = cairoTime.toLocaleString('en-US', {
-          timeZone: selectedUserTimezone,
-          hour12: false,
-          hour: '2-digit',
-          minute: '2-digit'
-        })
-        
-        allSlots.push(userTime)
+    // Use central timezone util to generate slots for Cairo and convert to user's timezone
+    try {
+      setIsLoadingSlots(true)
+      const selectedUserTimezone = userTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone
+      // Import util dynamically to avoid SSR issues
+      const { getWorkingSlotsForUser } = await import('../lib/simple-timezone-utils.js')
+      const slots: any = getWorkingSlotsForUser(date, selectedUserTimezone)
+      // slots may be array of strings or array of objects { cairoTime, userTime, utcTime }
+      const mapped = (slots || []).map((s: any) => {
+        if (typeof s === 'string') return { display: s, utcTime: null }
+        return { display: s.userTime || s.display || String(s), utcTime: s.utcTime || null }
+      })
+      // dedupe by utcTime if present else by display
+      const seen = new Set<string>()
+      const unique = [] as any[]
+      for (const it of mapped) {
+        const key = it.utcTime || it.display
+        if (!seen.has(key)) {
+          seen.add(key)
+          unique.push(it)
+        }
       }
+      setAvailableSlots(unique)
+      // Also fetch booked slots for this specific date and merge
+      try {
+        const bk = await AppointmentAPI.getBookedSlots(date)
+        if (bk && bk.success && Array.isArray(bk.bookedSlots)) {
+          // normalize and include utcTime when available
+          const normalized = normalizeBookedSlots(bk.bookedSlots)
+          setBookedSlots((prev) => {
+            const merged = [...prev, ...normalized]
+            const uniq = Array.from(new Set(merged.map((m: any) => `${m.date}||${m.time}||${m.utcTime || ''}`))).map(k => {
+              const [d, t, u] = k.split('||')
+              return { date: d, time: t, utcTime: u || undefined }
+            })
+            return uniq
+          })
+        }
+      } catch (e) {
+        // ignore
+      }
+    } catch (e) {
+      console.error('Failed to generate slots:', e)
+      setAvailableSlots([])
     }
-    
-    // Sort slots by time and remove duplicates
-    const uniqueSlots = [...new Set(allSlots)].sort()
-    setAvailableSlots(uniqueSlots)
+    finally {
+      setIsLoadingSlots(false)
+    }
   }
 
   const submitEnrollment = async () => {
@@ -404,28 +463,42 @@ const EnhancedEnrollmentForm = () => {
 
       if (!result.success) {
         // Check if the error is about existing active subscription
-        if (result.error && typeof result.error === 'string') {
+          if (result.error && typeof result.error === 'string') {
           if (result.error.toLowerCase().includes('already have an active subscription')) {
-            showToast("⚠️ لديك اشتراك فعال بالفعل في هذه الخطة! / You already have an active subscription to this plan! تواصل مع الدعم لتعديل اشتراكك أو اختر خطة مختلفة / Contact support to modify your subscription or choose a different plan.", "error")
+            showToast("You already have an active subscription to this plan. Contact support to modify your subscription or choose a different plan.", "error")
           } else if (result.error.toLowerCase().includes('plan not found')) {
-            showToast("❌ الخطة المحددة غير متوفرة / Selected plan is not available. يرجى اختيار خطة أخرى / Please choose another plan.", "error")
+            showToast("Selected plan is not available. Please choose another plan.", "error")
           } else if (result.error.toLowerCase().includes('insufficient')) {
-            showToast("💳 مشكلة في الدفع / Payment issue. يرجى التحقق من بيانات الدفع / Please check your payment details.", "error")
+            showToast("Payment issue. Please check your payment details.", "error")
           } else if (result.error.toLowerCase().includes('network') || result.error.toLowerCase().includes('connection')) {
-            showToast("🌐 مشكلة في الاتصال / Network issue. يرجى التحقق من الاتصال والمحاولة مرة أخرى / Please check your connection and try again.", "error")
+            showToast("Network issue. Please check your connection and try again.", "error")
           } else {
-            showToast(`❌ فشل في إنشاء الاشتراك / Failed to create subscription: ${result.error}`, "error")
+            showToast(`Failed to create subscription: ${result.error}`, "error")
           }
         } else {
-          showToast("❌ حدث خطأ غير متوقع / An unexpected error occurred. يرجى المحاولة مرة أخرى / Please try again.", "error")
+          showToast("An unexpected error occurred. Please try again.", "error")
         }
         return false
       }
-
-      showToast("🎉 تم إنشاء الاشتراك بنجاح! أهلاً بك في مدرسة بيان / Subscription created successfully! Welcome to Bayan School!", "success")
+      showToast("Subscription created successfully! Welcome to Bayan School!", "success")
+      // Append newly booked sessions to local bookedSlots so UI updates immediately
+      try {
+        const newBooked = selectedSessions.map((s: any) => ({ date: s.date, time: s.time, utcTime: s.utcTime }))
+        setBookedSlots((prev) => {
+          const merged = [...prev, ...newBooked]
+          // dedupe
+          const uniq = Array.from(new Set(merged.map((m: any) => `${m.date}||${m.time}||${m.utcTime || ''}`))).map(k => {
+            const [date, time, u] = k.split('||')
+            return { date, time, utcTime: u || undefined }
+          })
+          return uniq
+        })
+      } catch (e) {
+        // ignore
+      }
       return true
     } catch (error) {
-      showToast("⚠️ حدث خطأ / An error occurred. يرجى المحاولة مرة أخرى / Please try again.", "error")
+      showToast("An error occurred. Please try again.", "error")
       return false
     } finally {
       setIsSubmitting(false)
@@ -512,6 +585,12 @@ const EnhancedEnrollmentForm = () => {
             setJwtToken(result.token) // Update with permanent token
             setIsLoggedInUser(true) // Now user is fully registered
             showToast("Registration completed successfully! 🎉", "success")
+            // Fetch user profile to retrieve persisted timezone and update state
+            try {
+              await fetchUserProfileAndUpdateTimezone(result.token)
+            } catch (e) {
+              // ignore profile fetch errors here
+            }
           } else {
             // Handle registration errors gracefully
             if (result.error && (result.error.includes("already completed") || result.error.includes("No authentication token"))) {
@@ -630,8 +709,10 @@ const EnhancedEnrollmentForm = () => {
       const date = new Date(year, month, day)
       const isPast = date < minimumBookingDate // Changed to use minimumBookingDate
       const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
-      const isSelected = selectedSessions.some((s) => s.date === dateStr)
+  const isSelected = selectedSessions.some((s) => s.date === dateStr)
       const isCurrentlySelected = selectedDate === dateStr
+
+  // bookedCount removed: we no longer show per-day booked-count badge
 
       // Calculate week boundaries for this date
       const weekStart = new Date(date)
@@ -675,6 +756,7 @@ const EnhancedEnrollmentForm = () => {
           }
         >
           <span className="text-xs">{day}</span>
+          {/* booked-count badge removed as per UX request */}
           {isWeekFull && !isSelected && (
             <div className="absolute -top-1 -right-1 w-4 h-4 bg-orange-500 rounded-full flex items-center justify-center">
               <span className="text-white text-xs leading-none">!</span>
@@ -846,10 +928,6 @@ const EnhancedEnrollmentForm = () => {
             month: 'long', 
             day: 'numeric',
             weekday: 'long'
-          })} - ${new Date().toLocaleDateString('ar-SA-u-ca-islamic', { 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric'
           })}</p>
         </div>
 
@@ -917,10 +995,6 @@ const EnhancedEnrollmentForm = () => {
                   month: 'long', 
                   day: 'numeric',
                   weekday: 'long'
-                })} - ${new Date(session.date).toLocaleDateString('ar-SA-u-ca-islamic', { 
-                  year: 'numeric', 
-                  month: 'long', 
-                  day: 'numeric'
                 })}</span>
                 <span class="time">Time: ${session.time}</span>
               </li>
@@ -937,7 +1011,7 @@ const EnhancedEnrollmentForm = () => {
           <div class="info-grid">
             <div class="info-item">
               <span class="info-label">Registration Date:</span>
-              <span class="info-value">${new Date().toLocaleDateString('en-US')} - ${new Date().toLocaleDateString('ar-SA-u-ca-islamic')}</span>
+              <span class="info-value">${new Date().toLocaleDateString('en-US')}</span>
             </div>
             <div class="info-item">
               <span class="info-label">Subscription Status:</span>
@@ -946,7 +1020,7 @@ const EnhancedEnrollmentForm = () => {
             ${selectedSessions.length > 0 ? `
             <div class="info-item">
               <span class="info-label">First Session Date:</span>
-              <span class="info-value">${new Date(selectedSessions[0].date).toLocaleDateString('en-US')} - ${new Date(selectedSessions[0].date).toLocaleDateString('ar-SA-u-ca-islamic')}</span>
+              <span class="info-value">${new Date(selectedSessions[0].date).toLocaleDateString('en-US')}</span>
             </div>
             ` : ''}
             <div class="info-item">
@@ -978,50 +1052,70 @@ const EnhancedEnrollmentForm = () => {
 
     const slots = []
     const sessionsPerWeek = formData.package.sessionsPerWeek || 2
-    
+
     // Calculate week boundaries for selected date
     const selectedDateObj = new Date(selectedDate)
     const weekStart = new Date(selectedDateObj)
     weekStart.setDate(selectedDateObj.getDate() - selectedDateObj.getDay()) // Sunday
     const weekEnd = new Date(weekStart)
     weekEnd.setDate(weekStart.getDate() + 6) // Saturday
-    
+
     // Count existing sessions in this week
     const sessionsInWeek = selectedSessions.filter(session => {
       const sessionDate = new Date(session.date)
       return sessionDate >= weekStart && sessionDate <= weekEnd
     }).length
-    
+
     // Check if this week is full
     const isWeekFull = sessionsInWeek >= sessionsPerWeek
 
-    for (const time of availableSlots) {
-      const [hour, minute] = time.split(":").map(Number)
+    for (const slotItem of availableSlots) {
+      // slotItem can be a string like "07:00" or an object { display, utcTime }
+      const timeStr = typeof slotItem === 'string' ? slotItem : slotItem.display
+      const utcForSlot = typeof slotItem === 'string' ? undefined : slotItem.utcTime
+
+      const [hour, minute] = timeStr.split(":").map(Number)
       const displayTime = formatTime(hour, minute)
-      const isSelected = selectedSessions.some((s) => s.date === selectedDate && s.time === time)
-      
+
+      // Selected checks should prefer utcTime when available (for uniqueness across timezones)
+      const isSelected = selectedSessions.some((s) => {
+        const ss: any = s
+        if (utcForSlot && ss.utcTime) return ss.utcTime === utcForSlot
+        return s.date === selectedDate && s.time === timeStr
+      })
+
       // Check if this slot is booked by another student
-      const isBooked = bookedSlots.some((slot) => slot.date === selectedDate && slot.time === time)
-      
+      // If booked slot has utcTime, compare by utcTime; otherwise fall back to date+time
+      const isBooked = bookedSlots.some((slot) => {
+        const bs: any = slot
+        // If booked slot has utcTime, compare canonical UTC instants.
+        if (bs.utcTime) {
+          const slotUtc = utcForSlot || new Date(`${selectedDate}T${timeStr}:00`).toISOString()
+          return slotUtc === bs.utcTime
+        }
+        // fallback: compare by date + normalized time
+        return slot.date === selectedDate && to24(slot.time) === to24(timeStr)
+      })
+
       // Prevent selection if week is full and slot is not already selected
       const isWeekLimitReached = isWeekFull && !isSelected
 
       slots.push(
         <div
-          key={`${selectedDate}-${time}`}
+          key={`${selectedDate}-${timeStr}${utcForSlot ? `-${utcForSlot}` : ''}`}
           className={`px-4 py-3 rounded-2xl transition-all duration-300 text-center font-medium text-sm border-2 ${
             isBooked
-              ? "border-red-200 bg-red-50 text-red-400 cursor-not-allowed opacity-60"
+              ? "border-gray-200 bg-gray-100 text-gray-500 cursor-not-allowed opacity-70"
               : isWeekLimitReached
               ? "border-orange-200 bg-orange-50 text-orange-400 cursor-not-allowed opacity-60"
               : isSelected
               ? "border-blue-500 bg-gradient-to-br from-blue-500 to-purple-600 text-white shadow-lg transform scale-105 cursor-pointer"
               : "border-gray-200 bg-white text-gray-700 hover:border-blue-300 hover:bg-gradient-to-br hover:from-blue-50 hover:to-purple-50 hover:scale-105 hover:shadow-md cursor-pointer"
           }`}
-          onClick={isBooked || isWeekLimitReached ? undefined : () => toggleTimeSlot(time)}
+          onClick={isWeekLimitReached || isBooked ? undefined : () => toggleTimeSlot(slotItem)}
           title={
-            isBooked 
-              ? "This time slot is already booked" 
+            isBooked
+              ? "This time slot is already booked"
               : isWeekLimitReached
               ? `Week limit reached (${sessionsPerWeek} sessions max)`
               : ""
@@ -1045,10 +1139,32 @@ const EnhancedEnrollmentForm = () => {
     return `${displayHour}:${String(minute).padStart(2, "0")} ${period}`
   }
 
-  const toggleTimeSlot = (time: string) => {
+  const toggleTimeSlot = (slotOrTime: any) => {
     if (!selectedDate) return
 
-    const existingIndex = selectedSessions.findIndex((s) => s.date === selectedDate && s.time === time)
+    // Normalize incoming slot
+    const time = typeof slotOrTime === 'string' ? slotOrTime : slotOrTime.display
+    const utc = typeof slotOrTime === 'string' ? undefined : slotOrTime.utcTime
+
+    // Prevent selecting a slot that is already booked by someone else
+    const isBookedNow = bookedSlots.some((s) => {
+      const bs: any = s
+      if (bs.utcTime) {
+        const slotUtc = utc || new Date(`${selectedDate}T${time}:00`).toISOString()
+        return bs.utcTime === slotUtc
+      }
+      return s.date === selectedDate && to24(s.time) === to24(time)
+    })
+    if (isBookedNow) {
+      showToast('This time slot is already booked', 'error')
+      return
+    }
+
+    const existingIndex = selectedSessions.findIndex((s) => {
+      const ss: any = s
+      if (utc && ss.utcTime) return ss.utcTime === utc
+      return s.date === selectedDate && s.time === time
+    })
     const totalAllowed = maxSessions
 
     if (existingIndex > -1) {
@@ -1061,7 +1177,9 @@ const EnhancedEnrollmentForm = () => {
         return
       }
 
-      setSelectedSessions((prev) => [...prev, { date: selectedDate, time }])
+      const newEntry: any = { date: selectedDate, time }
+      if (utc) newEntry.utcTime = utc
+      setSelectedSessions((prev) => [...prev, newEntry])
     }
   }
 
