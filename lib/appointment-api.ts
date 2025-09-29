@@ -157,17 +157,34 @@ export const AppointmentAPI = {
         return { success: false, error: errorMsg }
       }
 
-      // Backend returns: { status: 'success', results: number, data: { plans: Plan[] } }
+      // Backend may return plans in several shapes. Normalize common variants.
       let plans: Plan[] = []
-      
-      if (body?.data?.plans && Array.isArray(body.data.plans)) {
+
+      // Common: { data: { subscriptionPlans: [...] } } (observed)
+      if (body?.data?.subscriptionPlans && Array.isArray(body.data.subscriptionPlans)) {
+        plans = body.data.subscriptionPlans
+      }
+      // Some backends use data.plans
+      else if (body?.data?.plans && Array.isArray(body.data.plans)) {
         plans = body.data.plans
-      } else if (body?.plans && Array.isArray(body.plans)) {
+      }
+      // top-level plans
+      else if (body?.plans && Array.isArray(body.plans)) {
         plans = body.plans
-      } else if (Array.isArray(body)) {
+      }
+      // sometimes the API returns the array directly
+      else if (Array.isArray(body)) {
         plans = body
-      } else {
-        return { success: false, error: "Invalid plans data structure" }
+      }
+      // fallback: try to find any array inside data
+      else if (body?.data) {
+        const values = Object.values(body.data)
+        const firstArray = values.find(v => Array.isArray(v))
+        if (firstArray) plans = firstArray as Plan[]
+      }
+
+      if (!plans || !Array.isArray(plans)) {
+        return { success: false, error: 'Invalid plans data structure' }
       }
       
       return { success: true, plans }
@@ -539,6 +556,314 @@ export const AppointmentAPI = {
     } catch (e: any) {
       // Return empty array instead of error - this is not critical functionality
       return { success: true, bookedSlots: [] }
+    }
+  },
+
+  // Admin: login (returns token)
+  async adminLogin(
+    email: string,
+    password: string
+  ): Promise<{ success: true; token: string } | ApiFailure> {
+    try {
+      const url = `${getBaseUrl()}/admin/login`
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      })
+      const body = await parseJson(res)
+      if (!res.ok) {
+        return { success: false, error: body?.message || `Admin login failed (${res.status})` }
+      }
+      const token = body?.data?.token || body?.token
+      if (!token) return { success: false, error: 'No token returned from admin login' }
+      return { success: true, token }
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Network error during admin login' }
+    }
+  },
+
+  // Admin: request password reset (sends email with reset token)
+  async adminRequestPasswordReset(email: string): Promise<ApiSuccess<unknown> | ApiFailure> {
+    try {
+      // Backend route observed: /admin/forgot-password
+      const url = `${getBaseUrl()}/admin/forgot-password`
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      })
+      const body = await parseJson(res)
+      if (!res.ok) return { success: false, error: body?.message || `Failed to request password reset (${res.status})` }
+      return { success: true, data: body }
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Network error requesting password reset' }
+    }
+  },
+
+  // Admin: confirm password reset using token from email
+  async adminConfirmPasswordReset(token: string, newPassword: string): Promise<ApiSuccess<unknown> | ApiFailure> {
+    try {
+      const url = `${getBaseUrl()}/admin/password-reset/confirm`
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, password: newPassword })
+      })
+      const body = await parseJson(res)
+      if (!res.ok) return { success: false, error: body?.message || `Failed to confirm password reset (${res.status})` }
+      return { success: true, data: body }
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Network error confirming password reset' }
+    }
+  },
+
+  // Admin: reset password using OTP (email + otp + new password)
+  async adminResetPassword(email: string, otp: string, newPassword: string): Promise<ApiSuccess<unknown> | ApiFailure> {
+    try {
+      const url = `${getBaseUrl()}/admin/reset-password`
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, otp, password: newPassword })
+      })
+      const body = await parseJson(res)
+      if (!res.ok) return { success: false, error: body?.message || `Failed to reset password (${res.status})` }
+      return { success: true, data: body }
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Network error resetting password' }
+    }
+  },
+
+  // Admin: fetch complete subscriptions with optional filters and displayCountry
+  async adminGetSubscriptions(
+    jwt: string,
+    params?: { status?: string; userEmail?: string; page?: number; limit?: number; displayCountry?: string }
+  ): Promise<{ success: true; subscriptions: any[] } | ApiFailure> {
+    try {
+      const q = new URLSearchParams()
+      if (params) {
+        if (params.status) q.set('status', params.status)
+        if (params.userEmail) q.set('userEmail', params.userEmail)
+        if (params.page) q.set('page', String(params.page))
+        if (params.limit) q.set('limit', String(params.limit))
+        if (params.displayCountry) q.set('displayCountry', params.displayCountry)
+      }
+      const url = `${getBaseUrl()}/admin/complete-subscriptions${q.toString() ? `?${q.toString()}` : ''}`
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${jwt}`,
+        },
+        cache: 'no-store',
+      })
+      const body = await parseJson(res)
+      if (!res.ok) {
+        return { success: false, error: body?.message || `Failed to fetch subscriptions (${res.status})` }
+      }
+      const subs = body?.data?.subscriptions || body?.subscriptions || []
+      return { success: true, subscriptions: subs }
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Network error fetching subscriptions' }
+    }
+  },
+
+  // Admin: get admin profile (to obtain admin country/timezone)
+  async adminGetProfile(jwt: string): Promise<{ success: true; admin: any } | ApiFailure> {
+    try {
+      const url = `${getBaseUrl()}/admin/profile`
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+        cache: 'no-store',
+      })
+      const body = await parseJson(res)
+      if (!res.ok) return { success: false, error: body?.message || `Failed to fetch admin profile (${res.status})` }
+      const admin = body?.data?.admin || body?.admin || body?.data || body
+      return { success: true, admin }
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Network error fetching admin profile' }
+    }
+  },
+
+  // Admin: fetch single subscription by id
+  async adminGetSubscriptionById(jwt: string, subscriptionId: string): Promise<{ success: true; subscription: any } | ApiFailure> {
+    try {
+      const url = `${getBaseUrl()}/admin/complete-subscriptions/${encodeURIComponent(subscriptionId)}`
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+      })
+      const body = await parseJson(res)
+      if (!res.ok) return { success: false, error: body?.message || `Failed to fetch subscription (${res.status})` }
+      const subscription = body?.data?.subscription || body?.subscription || body
+      return { success: true, subscription }
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Network error fetching subscription' }
+    }
+  },
+
+  // Admin: fetch users list (optional pagination/search)
+  async adminGetUsers(
+    jwt: string,
+    params?: { search?: string; page?: number; limit?: number }
+  ): Promise<{ success: true; users: any[] } | ApiFailure> {
+    try {
+      const q = new URLSearchParams()
+      if (params) {
+        if (params.search) q.set('search', params.search)
+        if (params.page) q.set('page', String(params.page))
+        if (params.limit) q.set('limit', String(params.limit))
+      }
+      const url = `${getBaseUrl()}/admin/users${q.toString() ? `?${q.toString()}` : ''}`
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+        cache: 'no-store',
+      })
+      const body = await parseJson(res)
+      if (!res.ok) return { success: false, error: body?.message || `Failed to fetch users (${res.status})` }
+      const users = body?.data?.users || body?.users || []
+      return { success: true, users }
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Network error fetching users' }
+    }
+  },
+
+  // Admin: delete a user (and backend should cascade-delete or server handles deleting related subscriptions)
+  async adminDeleteUser(jwt: string, userId: string): Promise<{ success: true; message?: string } | ApiFailure> {
+    try {
+      const url = `${getBaseUrl()}/admin/users/${encodeURIComponent(userId)}`
+      const res = await fetch(url, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+      })
+      const body = await parseJson(res)
+      if (!res.ok) return { success: false, error: body?.message || `Failed to delete user (${res.status})` }
+      return { success: true, message: body?.message || 'User deleted' }
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Network error deleting user' }
+    }
+  },
+
+  // Admin: delete a complete subscription by id
+  async adminDeleteSubscription(jwt: string, subscriptionId: string): Promise<{ success: true; message?: string } | ApiFailure> {
+    try {
+      const url = `${getBaseUrl()}/admin/complete-subscriptions/${encodeURIComponent(subscriptionId)}`
+      const res = await fetch(url, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+      })
+      const body = await parseJson(res)
+      if (!res.ok) return { success: false, error: body?.message || `Failed to delete subscription (${res.status})` }
+      return { success: true, message: body?.message || 'Subscription deleted' }
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Network error deleting subscription' }
+    }
+  },
+  // Admin: confirm payment for a complete subscription
+  async adminConfirmPayment(jwt: string, subscriptionId: string, paymentReference?: string): Promise<{ success: true; payment?: any } | ApiFailure> {
+    try {
+      const url = `${getBaseUrl()}/admin/complete-subscriptions/${encodeURIComponent(subscriptionId)}/confirm-payment`
+      const res = await fetch(url, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+        body: JSON.stringify(paymentReference ? { paymentReference } : {}),
+      })
+      const body = await parseJson(res)
+      if (!res.ok) return { success: false, error: body?.message || `Failed to confirm payment (${res.status})` }
+      // backend returns short payment state or updated subscription
+      const payment = body?.data || body
+      return { success: true, payment }
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Network error confirming payment' }
+    }
+  },
+
+  // Admin: Plans CRUD
+  async adminGetPlans(jwt: string): Promise<{ success: true; plans: Plan[] } | ApiFailure> {
+    try {
+      const url = `${getBaseUrl()}/admin/subscription-plans`
+      // Debug: helps track requests in browser/server logs when investigating missing plans
+      try { console.debug && console.debug('adminGetPlans requesting', url, 'jwtProvided:', !!jwt) } catch (e) {}
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+        cache: 'no-store',
+      })
+      const body = await parseJson(res)
+      if (!res.ok) return { success: false, error: body?.message || `Failed to fetch plans (${res.status})` }
+      // Normalize possible response shapes (data.subscriptionPlans observed)
+      let plans: Plan[] = []
+      if (body?.data?.subscriptionPlans && Array.isArray(body.data.subscriptionPlans)) {
+        plans = body.data.subscriptionPlans
+      } else if (body?.data?.plans && Array.isArray(body.data.plans)) {
+        plans = body.data.plans
+      } else if (body?.plans && Array.isArray(body.plans)) {
+        plans = body.plans
+      } else if (Array.isArray(body)) {
+        plans = body
+      } else if (body?.data) {
+        const values = Object.values(body.data)
+        const firstArray = values.find(v => Array.isArray(v))
+        if (firstArray) plans = firstArray as Plan[]
+      }
+
+      return { success: true, plans }
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Network error fetching plans' }
+    }
+  },
+
+  async adminCreatePlan(jwt: string, plan: Partial<Plan>): Promise<{ success: true; plan: Plan } | ApiFailure> {
+    try {
+      const url = `${getBaseUrl()}/admin/subscription-plans`
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+        body: JSON.stringify(plan),
+      })
+      const body = await parseJson(res)
+      if (!res.ok) return { success: false, error: body?.message || `Failed to create plan (${res.status})` }
+      const created = body?.data?.plan || body?.plan || body
+      return { success: true, plan: created }
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Network error creating plan' }
+    }
+  },
+
+  async adminUpdatePlan(jwt: string, planId: string, updates: Partial<Plan>): Promise<{ success: true; plan: Plan } | ApiFailure> {
+    try {
+      const url = `${getBaseUrl()}/admin/subscription-plans/${encodeURIComponent(planId)}`
+      // Debug: log update request URL and whether a jwt was provided
+      try { console.debug && console.debug('adminUpdatePlan', url, 'jwtProvided:', !!jwt) } catch (e) {}
+      const res = await fetch(url, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+        body: JSON.stringify(updates),
+      })
+      const body = await parseJson(res)
+      if (!res.ok) return { success: false, error: body?.message || `Failed to update plan (${res.status})` }
+      const updated = body?.data?.plan || body?.plan || body
+      return { success: true, plan: updated }
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Network error updating plan' }
+    }
+  },
+
+  async adminDeletePlan(jwt: string, planId: string): Promise<{ success: true; message?: string } | ApiFailure> {
+    try {
+      const url = `${getBaseUrl()}/admin/subscription-plans/${encodeURIComponent(planId)}`
+      const res = await fetch(url, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+      })
+      const body = await parseJson(res)
+      if (!res.ok) return { success: false, error: body?.message || `Failed to delete plan (${res.status})` }
+      return { success: true, message: body?.message || 'Plan deleted' }
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Network error deleting plan' }
     }
   },
 }
