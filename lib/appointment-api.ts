@@ -20,7 +20,20 @@ type ApiFailure = { success: false; error: string }
 
 function getBaseUrl() {
   const base = process.env.NEXT_PUBLIC_API_URL || ""
-  return base.replace(/\/$/, "")
+  const trimmed = base.replace(/\/$/, "")
+  
+  // If it's a relative path (starts with /), return as-is
+  if (trimmed.startsWith('/')) {
+    return trimmed
+  }
+  
+  // If it's a full URL, return trimmed
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return trimmed
+  }
+  
+  // If empty or invalid, return empty (will cause fetch to fail clearly)
+  return trimmed
 }
 
 async function parseJson<T = any>(res: Response): Promise<T> {
