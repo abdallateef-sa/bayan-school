@@ -19,7 +19,8 @@ type ApiSuccess<T> = { success: true; data?: T; message?: string }
 type ApiFailure = { success: false; error: string }
 
 function getBaseUrl() {
-  const base = process.env.NEXT_PUBLIC_API_URL || ""
+  // Default to relative API path to avoid mixed-content issues when frontend is served over HTTPS
+  const base = process.env.NEXT_PUBLIC_API_URL || '/api/v1'
   const trimmed = base.replace(/\/$/, "")
   
   // If it's a relative path (starts with /), return as-is
@@ -162,6 +163,7 @@ export const AppointmentAPI = {
   async getPlans(): Promise<{ success: true; plans: Plan[] } | ApiFailure> {
     try {
       const url = `${getBaseUrl()}/plans`
+      try { console.debug && console.debug('AppointmentAPI.getPlans requesting', url) } catch (e) {}
       const res = await fetch(url, { cache: "no-store" })
       const body = await parseJson(res)
       

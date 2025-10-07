@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react"
 import type { PersonalInfo, SelectedPackage, Session } from "@/types/enrollment"
+import { AppointmentAPI, type Plan as ApiPlan } from "@/lib/appointment-api"
 
 interface FormData {
   personal: PersonalInfo
@@ -23,6 +24,24 @@ const BayanEnrollmentForm = () => {
   const [userTimezone, setUserTimezone] = useState("")
   const [countries, setCountries] = useState<Array<{value: string, label: string}>>([])
   const [loadingCountries, setLoadingCountries] = useState(false)
+
+  // Format price using plan currency without converting values
+  const formatPrice = (price: number | undefined | null, currency?: string) => {
+    if (price == null) return "N/A"
+    const curr = currency || 'USD'
+    try {
+      const nf = new Intl.NumberFormat(undefined, { style: 'currency', currency: curr, minimumFractionDigits: 0 })
+      const parts = nf.formatToParts(price)
+      // Find currency symbol (e.g., $)
+      const symbolPart = parts.find(p => p.type === 'currency')
+      const symbol = symbolPart ? symbolPart.value : ''
+      // Use numeric portion (integer/decimal)
+      const number = parts.filter(p => p.type === 'integer' || p.type === 'group' || p.type === 'decimal' || p.type === 'fraction').map(p => p.value).join('')
+      return `${number}${symbol} ${curr}`
+    } catch (e) {
+      return `${Number(price).toLocaleString()} ${curr}`
+    }
+  }
 
   useEffect(() => {
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -134,6 +153,57 @@ const BayanEnrollmentForm = () => {
       details: ["Custom duration", "Flexible scheduling", "8+ hours monthly", "Contact for setup"],
     },
   ]
+
+  // Backend plans override local fallback packages when available
+  const [plans, setPlans] = useState<ApiPlan[] | null>(null)
+  const [loadingPlans, setLoadingPlans] = useState(false)
+
+  useEffect(() => {
+    let mounted = true
+    const loadPlans = async () => {
+      setLoadingPlans(true)
+      try {
+        const res = await AppointmentAPI.getPlans()
+        if ((res as any)?.success && Array.isArray((res as any).plans)) {
+          const apiPlans = (res as any).plans as ApiPlan[]
+          if (mounted) setPlans(apiPlans)
+        } else {
+          console.warn('AppointmentAPI.getPlans did not return plans; using fallback packages')
+        }
+      } catch (e) {
+        console.error('Failed to load plans from API', e)
+      } finally {
+        if (mounted) setLoadingPlans(false)
+      }
+    }
+
+    loadPlans()
+    return () => { mounted = false }
+  }, [])
+
+  const mapApiPlanToUi = (p: ApiPlan) => ({
+    id: p._id || p.id || String(p.name),
+    name: p.name,
+    description: p.description || "",
+    sessions: p.sessionsPerMonth ?? p.sessionsPerMonth ?? 0,
+    price: p.price ?? p.pricePerSession ?? 0,
+    currency: p.currency || 'USD',
+    popular: false,
+    details: Array.isArray((p as any).features) ? (p as any).features : [],
+  })
+
+  type UiPackage = {
+    id: string
+    name: string
+    description?: string
+    sessions: number
+    price: number
+    currency?: string
+    popular?: boolean
+    details: string[]
+  }
+
+  const effectivePackages: UiPackage[] = plans && plans.length > 0 ? plans.map(mapApiPlanToUi) as UiPackage[] : packages as UiPackage[]
 
   const sendEmail = () => {
     console.log("Sending email to:", formData.personal.email)
@@ -369,9 +439,12 @@ const BayanEnrollmentForm = () => {
   ]
 
   const progressPercentage = (currentStep - 1) * 33.33
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-purple-100 flex items-center justify-center p-4">
+      {/* Scoped style for progress width to avoid inline style lint */}
+      <style>{`:root { --progress-width: ${progressPercentage}%; } .bayan-progress-fill { width: var(--progress-width); }`}</style>
+
+    return (
       <div className="bg-white/80 backdrop-blur-lg rounded-3xl shadow-2xl max-w-5xl w-full p-8 md:p-12 border border-white/20">
         {/* Header */}
         <div className="text-center mb-12">
@@ -409,8 +482,7 @@ const BayanEnrollmentForm = () => {
           </div>
           <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
             <div
-              className="h-full bg-gradient-to-r from-blue-500 to-purple-600 rounded-full transition-all duration-700 ease-out"
-              style={{ width: `${progressPercentage}%` }}
+              className="h-full bg-gradient-to-r from-blue-500 to-purple-600 rounded-full transition-all duration-700 ease-out bayan-progress-fill"
             ></div>
           </div>
         </div>
@@ -550,7 +622,7 @@ const BayanEnrollmentForm = () => {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-              {packages.slice(0, 3).map((pkg) => (
+              {effectivePackages.slice(0, 3).map((pkg) => (
                 <div
                   key={pkg.id}
                   className={`relative p-6 rounded-3xl cursor-pointer transition-all duration-300 border-2 hover:scale-105 hover:shadow-2xl ${
@@ -573,12 +645,12 @@ const BayanEnrollmentForm = () => {
                     <p className="text-gray-500 mb-6">{pkg.description}</p>
 
                     <div className="mb-6">
-                      <span className="text-4xl font-bold text-blue-600">${pkg.price}</span>
+                      <span className="text-4xl font-bold text-blue-600">{formatPrice(pkg.price, (pkg as any).currency)}</span>
                       <span className="text-gray-500">/month</span>
                     </div>
 
                     <div className="space-y-3">
-                      {pkg.details.map((detail, index) => (
+                      {pkg.details.map((detail: string, index: number) => (
                         <div key={index} className="flex items-center text-sm text-gray-600">
                           <span className="w-2 h-2 bg-green-400 rounded-full mr-3 flex-shrink-0"></span>
                           {detail}
@@ -593,7 +665,7 @@ const BayanEnrollmentForm = () => {
             <div className="bg-gradient-to-r from-gray-50 to-blue-50 rounded-3xl p-6 mb-8">
               <h3 className="text-xl font-semibold text-gray-800 mb-4">Alternative Packages</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {packages.slice(3).map((pkg) => (
+                {effectivePackages.slice(3).map((pkg) => (
                   <div
                     key={pkg.id}
                     className={`p-6 rounded-2xl cursor-pointer transition-all duration-300 border-2 hover:scale-105 ${
@@ -607,12 +679,12 @@ const BayanEnrollmentForm = () => {
                     <p className="text-gray-500 mb-4">{pkg.description}</p>
                     <div className="mb-4">
                       <span className="text-2xl font-bold text-blue-600">
-                        ${pkg.price}
+                        {formatPrice(pkg.price, (pkg as any).currency)}
                         {pkg.id === "custom2" ? "/hour" : "/month"}
                       </span>
                     </div>
                     <div className="space-y-2">
-                      {pkg.details.map((detail, index) => (
+                      {pkg.details.map((detail: string, index: number) => (
                         <div key={index} className="flex items-center text-sm text-gray-600">
                           <span className="w-2 h-2 bg-green-400 rounded-full mr-3 flex-shrink-0"></span>
                           {detail}

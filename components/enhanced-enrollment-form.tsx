@@ -89,6 +89,7 @@ const EnhancedEnrollmentForm = () => {
   const [availableSlots, setAvailableSlots] = useState<any[]>([])
   const [plans, setPlans] = useState<any[]>([])
   const [isLoadingPlans, setIsLoadingPlans] = useState(false)
+  const [plansDebug, setPlansDebug] = useState<string | null>(null)
   const [bookedSlots, setBookedSlots] = useState<Array<{ date: string; time: string; utcTime?: string }>>([])
   const [isLoadingSlots, setIsLoadingSlots] = useState(false)
   const [countries, setCountries] = useState<Array<{value: string, label: string}>>([])
@@ -110,6 +111,7 @@ const EnhancedEnrollmentForm = () => {
   // Optimized data initialization - load all initial data in parallel
   const initializeData = async () => {
     try {
+      setIsLoadingPlans(true)
       // Load all initial data in parallel instead of sequential calls
       const [plansResult, slotsResult, countriesResult] = await Promise.all([
         AppointmentAPI.getPlans().catch(() => ({ success: false })),
@@ -118,8 +120,18 @@ const EnhancedEnrollmentForm = () => {
       ])
 
       // Handle plans
-      if (plansResult.success && 'plans' in plansResult) {
-        setPlans(plansResult.plans)
+      try {
+        console.debug && console.debug('initializeData: plansResult', plansResult)
+        setPlansDebug(typeof plansResult === 'string' ? plansResult : JSON.stringify(plansResult))
+      } catch (e) {
+        // ignore
+      }
+
+      if (plansResult && (plansResult as any).success && 'plans' in (plansResult as any)) {
+        setPlans((plansResult as any).plans || [])
+      } else {
+        // keep fallback to local packages
+        setPlans([])
       }
       setIsLoadingPlans(false)
 
@@ -1272,11 +1284,10 @@ const EnhancedEnrollmentForm = () => {
               </div>
             ))}
           </div>
+          {/* Scoped style for progress width */}
+          <style>{`:root { --enhanced-progress-width: ${progressPercentage}%; } .enhanced-progress-fill { width: var(--enhanced-progress-width); }`}</style>
           <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-blue-500 to-purple-600 rounded-full transition-all duration-700 ease-out"
-              style={{ width: `${progressPercentage}%` }}
-            ></div>
+            <div className="h-full bg-gradient-to-r from-blue-500 to-purple-600 rounded-full transition-all duration-700 ease-out enhanced-progress-fill"></div>
           </div>
         </div>
 
@@ -1537,36 +1548,86 @@ const EnhancedEnrollmentForm = () => {
                 <p className="mt-2 text-gray-500">Loading plans...</p>
               </div>
             ) : (
-              <div className="flex flex-wrap gap-6 justify-center">
+              <>
+                {/* Diagnostic notice to help when API returns no plans */}
+                {!isLoadingPlans && plans.length === 0 && (
+                  <div className="mb-6 w-full max-w-3xl mx-auto p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
+                    <div className="font-semibold mb-2">No plans returned from API — showing local defaults.</div>
+                    <div className="text-xs text-yellow-900 mb-2">Check browser console & Network for the GET /plans request. We also log the request URL as <code>AppointmentAPI.getPlans requesting &lt;url&gt;</code>.</div>
+                    {plansDebug && (
+                      <details className="bg-white border rounded p-3 text-xs text-gray-800">
+                        <summary className="cursor-pointer font-medium">Show API result (debug)</summary>
+                        <pre className="whitespace-pre-wrap mt-2 text-xs">{plansDebug}</pre>
+                      </details>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex flex-wrap gap-6 justify-center">
                 {(plans.length > 0 ? plans : packages).map((pkg, index) => {
-                  // Convert backend plan to frontend format
-                  const displayPkg = plans.length > 0 ? {
-                    id: pkg._id || pkg.id,
-                    name: pkg.name,
-                    description: pkg.description || "Package plan",
-                    sessions: pkg.sessionsPerMonth || 8,
-                    sessionsPerWeek: pkg.sessionsPerWeek || 2,
-                    price: Math.round((pkg.price || 1000) / 100), // Convert from cents to dollars
-                    popular: index === 1, // Make second plan popular
-                    details: [
-                      `${pkg.duration || 30}min sessions`,
-                      `${pkg.sessionsPerWeek || 2} sessions/week`,
-                      `${pkg.sessionsPerMonth || 8} sessions/month`,
-                      "Live online sessions"
-                    ]
-                  } : pkg
+                  const isApiPlan = plans.length > 0
+
+                  // Helper to format price as '35$ USD' using DB currency
+                  const formatPrice = (price: number | undefined | null, currency?: string) => {
+                    if (price == null) return "N/A"
+                    const curr = currency || 'USD'
+                    try {
+                      const nf = new Intl.NumberFormat(undefined, { style: 'currency', currency: curr, minimumFractionDigits: 0 })
+                      const parts = nf.formatToParts(price)
+                      // Numeric parts (integer, group, decimal, fraction)
+                      const number = parts
+                        .filter(p => p.type === 'integer' || p.type === 'group' || p.type === 'decimal' || p.type === 'fraction')
+                        .map(p => p.value)
+                        .join('')
+                      const symbolPart = parts.find(p => p.type === 'currency')
+                      let symbol = symbolPart ? symbolPart.value : ''
+                      // Some locales include the country code in the currency part (e.g. 'US$').
+                      // Remove any leading ASCII letters (country code) and whitespace, leaving the punctuation/symbol.
+                      symbol = symbol.replace(/^[A-Za-z\s]+/, '')
+                      // If stripping removed everything (rare), fall back to removing digits/letters to leave punctuation
+                      if (!symbol) {
+                        symbol = (symbolPart ? symbolPart.value : '').replace(/[0-9A-Za-z\s]/g, '') || symbolPart?.value || ''
+                      }
+                      return `${number}${symbol} ${curr}`
+                    } catch (e) {
+                      return `${Number(price).toLocaleString()} ${curr}`
+                    }
+                  }
+
+                  const displayPkg = isApiPlan
+                    ? {
+                        id: (pkg as any)._id || (pkg as any).id,
+                        name: (pkg as any).name,
+                        description: (pkg as any).description || "Package plan",
+                        sessions: (pkg as any).sessionsPerMonth || 8,
+                        sessionsPerWeek: (pkg as any).sessionsPerWeek || 2,
+                        price: (pkg as any).price ?? (pkg as any).pricePerSession ?? 0,
+                        currency: (pkg as any).currency ?? 'USD',
+                        // preserve any free-form comments/notes from API so we can render them as bullets
+                        rawComments: (pkg as any).comments ?? (pkg as any).notes ?? '',
+                        // include features array from DB (common field name) so we can render them
+                        features: (pkg as any).features ?? (pkg as any).details ?? [],
+                        popular: index === 1,
+                        details: [
+                          `${(pkg as any).duration || 30} Days Course Duration`,
+                          `${(pkg as any).sessionsPerWeek || 2} sessions/week`,
+                          `${(pkg as any).sessionsPerMonth || 8} sessions/month`,
+                         
+                        ],
+                      }
+                    : { ...(pkg as any), currency: (pkg as any).currency || 'USD' }
 
                   return (
                     <div
-                      key={displayPkg.id}
+                      key={(displayPkg as any).id}
                       className={`relative p-6 rounded-3xl cursor-pointer transition-all duration-300 border-2 hover:scale-105 hover:shadow-2xl flex-1 min-w-[280px] max-w-[350px] ${
-                        formData.package.type === displayPkg.id
+                        formData.package.type === (displayPkg as any).id
                           ? "border-blue-500 bg-gradient-to-br from-blue-50 to-purple-50 shadow-xl shadow-blue-200"
                           : "border-gray-200 bg-white hover:border-blue-300 hover:shadow-xl"
                       }`}
                       onClick={() => selectPackage(displayPkg)}
                     >
-                      {displayPkg.popular && (
+                      {((displayPkg as any).popular) && (
                         <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
                           <span className="bg-gradient-to-r from-orange-400 to-pink-500 text-white px-4 py-1 rounded-full text-sm font-semibold shadow-lg">
                             Most Popular
@@ -1575,27 +1636,65 @@ const EnhancedEnrollmentForm = () => {
                       )}
 
                       <div className="text-center">
-                        <h3 className="text-2xl font-bold text-gray-800 mb-2">{displayPkg.name}</h3>
-                        <p className="text-gray-500 mb-6">{displayPkg.description}</p>
+                        <h3 className="text-2xl font-bold text-gray-800 mb-2">{(displayPkg as any).name}</h3>
+                        <p className="text-gray-500 mb-6">{(displayPkg as any).description}</p>
 
                         <div className="mb-6">
-                          <span className="text-4xl font-bold text-blue-600">${displayPkg.price}</span>
+                          <span className="text-4xl font-bold text-blue-600">{formatPrice((displayPkg as any).price, (displayPkg as any).currency)}</span>
                           <span className="text-gray-500">/month</span>
                         </div>
 
                         <div className="space-y-3">
-                          {displayPkg.details.map((detail: string, idx: number) => (
-                            <div key={idx} className="flex items-center text-sm text-gray-600">
-                              <span className="w-2 h-2 bg-green-400 rounded-full mr-3 flex-shrink-0"></span>
-                              {detail}
-                            </div>
-                          ))}
+                          {
+                            // Build a canonical array of strings from details, features, and rawComments.
+                            // Accept shapes: features can be array of strings, array of objects, or a single comma-separated string.
+                            (() => {
+                              const details: string[] = Array.isArray((displayPkg as any).details) ? (displayPkg as any).details.map(String) : []
+
+                              const rawFeatures = (displayPkg as any).features
+                              let featuresArr: string[] = []
+                              if (Array.isArray(rawFeatures)) {
+                                // If features is an array of objects like [{ title: 'x' }] or array of strings
+                                featuresArr = rawFeatures.map((f: any) => {
+                                  if (!f && f !== 0) return ''
+                                  if (typeof f === 'string') return f
+                                  if (typeof f === 'number') return String(f)
+                                  if (typeof f === 'object') return String(f.title || f.name || f.label || JSON.stringify(f))
+                                  return String(f)
+                                }).filter(Boolean)
+                              } else if (rawFeatures && typeof rawFeatures === 'string') {
+                                featuresArr = rawFeatures.split(',').map(s => s.trim()).filter(Boolean)
+                              }
+
+                              const rawComments = (displayPkg as any).rawComments
+                              let commentsArr: string[] = []
+                              if (Array.isArray(rawComments)) {
+                                commentsArr = rawComments.map(String).filter(Boolean)
+                              } else if (rawComments && typeof rawComments === 'string') {
+                                commentsArr = rawComments.split(',').map(s => s.trim()).filter(Boolean)
+                              }
+
+                              const all = ([] as string[])
+                                .concat(details)
+                                .concat(featuresArr)
+                                .concat(commentsArr)
+
+                              // Ensure each entry is split on commas (safety) and trimmed
+                              return all.flatMap(d => String(d).split(',').map(s => s.trim()).filter(Boolean))
+                            })().map((detail: string, idx: number) => (
+                              <div key={idx} className="flex items-center text-sm text-gray-600">
+                                <span className="w-2 h-2 bg-green-400 rounded-full mr-3 flex-shrink-0"></span>
+                                {detail}
+                              </div>
+                            ))
+                          }
                         </div>
                       </div>
                     </div>
                   )
                 })}
               </div>
+              </>
             )}
 
             <div className="flex justify-between">

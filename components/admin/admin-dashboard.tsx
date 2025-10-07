@@ -23,12 +23,19 @@ function PlanForm({ initial, onCancel, onSave }: { initial?: any; onCancel: () =
   const [sessionsPerMonth, setSessionsPerMonth] = useState(initial?.sessionsPerMonth ?? initial?.sessionsPerMonth ?? 0)
   const [sessionsPerWeek, setSessionsPerWeek] = useState(initial?.sessionsPerWeek ?? initial?.sessionsPerWeek ?? 0)
   const [price, setPrice] = useState(initial?.price ?? initial?.amount ?? 0)
-  const [currency, setCurrency] = useState(initial?.currency || 'EGP')
-  const [duration, setDuration] = useState(initial?.duration ?? 30)
-  const [featuresText, setFeaturesText] = useState((initial?.features && Array.isArray(initial.features)) ? initial.features.join(', ') : '')
+  const [currency, setCurrency] = useState(initial?.currency || 'USD')
+  // duration can be one of presets or a custom number
+  const presets = [30, 60, 90, 120]
+  const initialDuration = typeof initial?.duration === 'number' ? initial.duration : 30
+  const [duration, setDuration] = useState<number>(presets.includes(initialDuration) ? initialDuration : 30)
+  const [durationMode, setDurationMode] = useState<'preset' | 'custom'>(presets.includes(initialDuration) ? 'preset' : 'custom')
+  const [customDuration, setCustomDuration] = useState<number>(presets.includes(initialDuration) ? 30 : initialDuration)
+  const [features, setFeatures] = useState<string[]>((initial?.features && Array.isArray(initial.features)) ? initial.features.slice() : [])
+  const [newFeature, setNewFeature] = useState('')
 
   const submit = async (e?: any) => {
     if (e && e.preventDefault) e.preventDefault()
+    const finalDuration = durationMode === 'custom' ? Number(customDuration) || 0 : Number(duration) || 0
     const payload = {
       name: name.trim(),
       description: description.trim(),
@@ -36,8 +43,8 @@ function PlanForm({ initial, onCancel, onSave }: { initial?: any; onCancel: () =
       sessionsPerWeek: Number(sessionsPerWeek) || 0,
       price: Number(price) || 0,
       currency: currency || 'EGP',
-      duration: Number(duration) || 0,
-      features: featuresText ? featuresText.split(',').map((f: string) => f.trim()).filter(Boolean) : [],
+      duration: finalDuration,
+      features: Array.isArray(features) ? features.filter(Boolean) : [],
     }
     await onSave(payload)
   }
@@ -69,16 +76,81 @@ function PlanForm({ initial, onCancel, onSave }: { initial?: any; onCancel: () =
         </div>
         <div>
           <label className="text-xs text-gray-500">Currency</label>
-          <input title="Currency" placeholder="EGP" className="w-full border rounded px-2 py-1" value={currency} onChange={(e) => setCurrency(e.target.value)} />
+          <select title="Currency" className="w-full border rounded px-2 py-1" value={currency} onChange={(e) => setCurrency(e.target.value)}>
+            <option value="USD">USD</option>
+          </select>
         </div>
         <div>
           <label className="text-xs text-gray-500">Duration (days)</label>
-          <input title="Duration in days" placeholder="30" type="number" className="w-full border rounded px-2 py-1" value={duration} onChange={(e) => setDuration(Number(e.target.value))} />
+          <div className="flex flex-col">
+            <select title="Duration in days" className="w-full border rounded px-2 py-1" value={durationMode === 'preset' ? String(duration) : 'custom'} onChange={(e) => {
+              const v = e.target.value
+              if (v === 'custom') {
+                setDurationMode('custom')
+                // seed custom input with current duration
+                setCustomDuration(duration)
+              } else {
+                setDurationMode('preset')
+                setDuration(Number(v))
+              }
+            }}>
+              <option value={String(presets[0])}>{presets[0]}</option>
+              <option value={String(presets[1])}>{presets[1]}</option>
+              <option value={String(presets[2])}>{presets[2]}</option>
+              <option value={String(presets[3])}>{presets[3]}</option>
+              <option value="custom">Custom</option>
+            </select>
+            {durationMode === 'custom' && (
+              <input
+                title="Custom duration in days"
+                type="number"
+                min={1}
+                className="w-full border rounded px-2 py-1 mt-2"
+                value={customDuration}
+                onChange={(e) => setCustomDuration(Number(e.target.value))}
+              />
+            )}
+          </div>
         </div>
       </div>
       <div>
-        <label className="text-xs text-gray-500">Features (comma separated)</label>
-  <input title="Features" placeholder="Individual sessions, Weekly reports" className="w-full border rounded px-2 py-1" value={featuresText} onChange={(e) => setFeaturesText(e.target.value)} />
+        <label className="text-xs text-gray-500">Features</label>
+        <div className="mt-1">
+          <div className="flex flex-wrap gap-2">
+            {features.map((f, idx) => (
+              <div key={idx} className="flex items-center gap-2 bg-slate-100 px-2 py-1 rounded text-sm">
+                <span>{f}</span>
+                <button type="button" className="text-xs text-gray-500" onClick={() => setFeatures(prev => prev.filter((_, i) => i !== idx))}>×</button>
+              </div>
+            ))}
+          </div>
+          <div className="mt-2 flex gap-2">
+            <input
+              title="Add feature"
+              placeholder="Add a feature and press Enter"
+              className="flex-1 border rounded px-2 py-1"
+              value={newFeature}
+              onChange={(e) => setNewFeature(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  const val = newFeature.trim()
+                  if (val) {
+                    setFeatures(prev => [...prev, val])
+                    setNewFeature('')
+                  }
+                }
+              }}
+            />
+            <Button type="button" onClick={() => {
+              const val = newFeature.trim()
+              if (val) {
+                setFeatures(prev => [...prev, val])
+                setNewFeature('')
+              }
+            }}>Add</Button>
+          </div>
+        </div>
       </div>
       <div className="flex justify-end gap-2">
         <Button variant="ghost" type="button" onClick={onCancel}>Cancel</Button>
@@ -538,7 +610,7 @@ export default function AdminDashboard() {
           </div>
           <div className="bg-white border rounded-lg p-4">
             <div className="text-sm text-gray-500">Revenue</div>
-            <div className="text-2xl font-semibold">{stats.totalRevenue.toLocaleString(undefined, { maximumFractionDigits: 2 })} EGP</div>
+            <div className="text-2xl font-semibold">{stats.totalRevenue.toLocaleString(undefined, { maximumFractionDigits: 2 })} USD</div>
           </div>
         </div>
 
