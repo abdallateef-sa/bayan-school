@@ -3,6 +3,9 @@
 import { useState, useEffect } from "react"
 import type { EnrollmentData, PersonalInfo, SelectedPackage, Session } from "@/types/enrollment"
 import { AppointmentAPI } from "@/lib/appointment-api"
+import { getTimezoneForUSState } from "@/lib/us-timezones"
+import { fetchCountryStates, curateCountries } from "@/lib/geo"
+import { getTimezoneForRegion } from "@/lib/region-timezones"
 
 const EnhancedEnrollmentForm = () => {
   const [currentStep, setCurrentStep] = useState(1)
@@ -89,15 +92,28 @@ const EnhancedEnrollmentForm = () => {
   const [availableSlots, setAvailableSlots] = useState<any[]>([])
   const [plans, setPlans] = useState<any[]>([])
   const [isLoadingPlans, setIsLoadingPlans] = useState(false)
-  const [plansDebug, setPlansDebug] = useState<string | null>(null)
   const [bookedSlots, setBookedSlots] = useState<Array<{ date: string; time: string; utcTime?: string }>>([])
   const [isLoadingSlots, setIsLoadingSlots] = useState(false)
   const [countries, setCountries] = useState<Array<{value: string, label: string}>>([])
   const [loadingCountries, setLoadingCountries] = useState(false)
+  const [usState, setUsState] = useState<string>("")
+  const [stateOptions, setStateOptions] = useState<Array<{ name: string; code?: string }>>([])
+  const [region, setRegion] = useState<string>("")
+  const [geoPrompted, setGeoPrompted] = useState(false)
+  const [countryFlag, setCountryFlag] = useState<string>("🌍")
 
   useEffect(() => {
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
     setUserTimezone(timezone)
+    // Try to set a default flag from locale region
+    try {
+      const locale = Intl.DateTimeFormat().resolvedOptions().locale || 'en-US'
+      const region = (locale.split('-')[1] || '').toUpperCase()
+      if (region && region.length === 2) {
+        const flag = region.replace(/./g, (char) => String.fromCodePoint(127397 + char.charCodeAt(0)))
+        if (flag) setCountryFlag(flag)
+      }
+    } catch {}
     
     // Initialize data loading with optimized batch loading
     initializeData()
@@ -107,6 +123,13 @@ const EnhancedEnrollmentForm = () => {
       fetchUserProfileAndUpdateTimezone()
     }
   }, [jwtToken, isLoggedInUser])
+
+  // Regenerate available slots when timezone changes
+  useEffect(() => {
+    if (selectedDate) {
+      fetchAvailableSlots(selectedDate)
+    }
+  }, [userTimezone])
 
   // Optimized data initialization - load all initial data in parallel
   const initializeData = async () => {
@@ -120,13 +143,6 @@ const EnhancedEnrollmentForm = () => {
       ])
 
       // Handle plans
-      try {
-        console.debug && console.debug('initializeData: plansResult', plansResult)
-        setPlansDebug(typeof plansResult === 'string' ? plansResult : JSON.stringify(plansResult))
-      } catch (e) {
-        // ignore
-      }
-
       if (plansResult && (plansResult as any).success && 'plans' in (plansResult as any)) {
         setPlans((plansResult as any).plans || [])
       } else {
@@ -167,20 +183,17 @@ const EnhancedEnrollmentForm = () => {
         // Fallback countries if API fails
         setCountries([
           { value: "", label: "Select your country" },
-          { value: "United States", label: "🇺🇸 United States" },
-          { value: "United Kingdom", label: "🇬🇧 United Kingdom" },
-          { value: "Canada", label: "🇨🇦 Canada" },
-          { value: "Australia", label: "🇦🇺 Australia" },
-          { value: "Germany", label: "🇩🇪 Germany" },
-          { value: "France", label: "🇫🇷 France" },
-          { value: "Saudi Arabia", label: "🇸🇦 Saudi Arabia" },
-          { value: "UAE", label: "🇦🇪 UAE" },
-          { value: "Egypt", label: "🇪🇬 Egypt" },
-          { value: "Pakistan", label: "🇵🇰 Pakistan" },
-          { value: "India", label: "🇮🇳 India" },
-          { value: "Malaysia", label: "🇲🇾 Malaysia" },
-          { value: "Indonesia", label: "🇮🇩 Indonesia" },
-          { value: "Turkey", label: "🇹🇷 Turkey" },
+          { value: "United States", label: "United States" },
+          { value: "United Kingdom", label: "United Kingdom" },
+          { value: "Canada", label: "Canada" },
+          { value: "Egypt", label: "Egypt" },
+          { value: "Saudi Arabia", label: "Saudi Arabia" },
+          { value: "UAE", label: "UAE" },
+          { value: "Germany", label: "Germany" },
+          { value: "France", label: "France" },
+          { value: "India", label: "India" },
+          { value: "Pakistan", label: "Pakistan" },
+          { value: "Australia", label: "Australia" },
           { value: "other", label: "🌍 Other" },
         ])
       }
@@ -203,13 +216,7 @@ const EnhancedEnrollmentForm = () => {
       const data = await response.json()
 
       if (data && (data.status === 'success' && data.data && data.data.countries)) {
-        return [
-          { value: "", label: "Select your country" },
-          ...data.data.countries.map((country: any) => ({
-            value: country.name,
-            label: `🌍 ${country.name}`
-          }))
-        ]
+        return curateCountries(data.data.countries)
       }
     } catch (error) {
       // Return null to use fallback countries
@@ -267,6 +274,20 @@ const EnhancedEnrollmentForm = () => {
     }
   }, [formData.personal.country])
 
+  // Dynamically load region/state options for selected country
+  useEffect(() => {
+    const selectedCountry = formData.personal.country || ''
+    if (selectedCountry && selectedCountry !== 'other') {
+      fetchCountryStates(selectedCountry)
+        .then((states) => setStateOptions(states || []))
+        .catch(() => setStateOptions([]))
+    } else {
+      setStateOptions([])
+      setUsState("")
+      setRegion("")
+    }
+  }, [formData.personal.country])
+
 
 
   // Update timezone based on user's selected country
@@ -278,12 +299,15 @@ const EnhancedEnrollmentForm = () => {
       const userCountry = countryName || formData.personal.country
       
       if (userCountry && userCountry !== 'other') {
+        // Prefer region-specific timezone when available
+        const selectedRegion = (userCountry === 'United States' ? usState : region)
+        if (selectedRegion) {
+          const tz = userCountry === 'United States' ? getTimezoneForUSState(selectedRegion) : getTimezoneForRegion(userCountry, selectedRegion)
+          if (tz) { setUserTimezone(tz); return }
+        }
         const response = await fetch(`${apiBaseUrl}/countries/${encodeURIComponent(userCountry)}/timezone`)
         const data = await response.json()
-        
-        if (data.status === 'success' && data.data.timezone) {
-          setUserTimezone(data.data.timezone)
-        }
+        if (data.status === 'success' && data.data.timezone) setUserTimezone(data.data.timezone)
       }
     } catch (error) {
       // Silent error handling - fallback to browser timezone
@@ -456,15 +480,25 @@ const EnhancedEnrollmentForm = () => {
         return false
       }
 
-      // Create complete subscription with plan and all sessions in one call
-      const today = new Date()
-      const startDate = today.toISOString().split('T')[0] // YYYY-MM-DD format
+  // Create complete subscription with plan and all sessions in one call
+  // Use Cairo's calendar day to avoid UTC off-by-one causing a "past" date
+  const startDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo' }).format(new Date())
       
-      const sessionsData = selectedSessions.map(session => ({
-        date: session.date,
-        time: session.time,
-        notes: `${formData.package.name} session`
-      }))
+      const sessionsData = selectedSessions.map(session => {
+        const payload: any = {
+          date: session.date,
+          time: session.time,
+          notes: `${formData.package.name} session`
+        }
+        // Prefer utcTime if captured from slot selection
+        if ((session as any).utcTime) {
+          payload.startsAtUTC = (session as any).utcTime
+        } else {
+          // Fallback: compute from local date/time
+          try { payload.startsAtUTC = new Date(`${session.date}T${session.time}:00`).toISOString() } catch {}
+        }
+        return payload
+      })
 
       const result = await AppointmentAPI.createCompleteSubscription(jwtToken, {
         subscriptionPlanId: formData.package.planId,
@@ -582,6 +616,12 @@ const EnhancedEnrollmentForm = () => {
         return
       }
 
+      // If US is selected, require state selection
+      if ((formData.personal.country || '') === 'United States' && !usState) {
+        showToast("Please select your state", "error")
+        return
+      }
+
       // Only complete registration if user is truly new (has tempToken)
       if (jwtToken && !isLoggedInUser) {
         try {
@@ -590,7 +630,8 @@ const EnhancedEnrollmentForm = () => {
             lastName: formData.personal.lastName,
             phone: formData.personal.phone,
             gender: formData.personal.gender,
-            country: formData.personal.country
+            country: formData.personal.country,
+            timezone: userTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone
           })
 
           if (result.success) {
@@ -683,7 +724,38 @@ const EnhancedEnrollmentForm = () => {
     if (field === 'country' && sanitizedValue && sanitizedValue !== 'other') {
       // Update timezone immediately with the new country value
       setTimeout(() => updateTimezoneFromUserCountry(sanitizedValue), 100)
+      // Reset US state when country changes away from US
+      if (sanitizedValue !== 'United States') setUsState("")
+      // Update flag emoji for selected country when possible
+      try {
+        const code = countryNameToCode(sanitizedValue)
+        if (code) {
+          const flag = code.replace(/./g, (c) => String.fromCodePoint(127397 + c.charCodeAt(0)))
+          setCountryFlag(flag)
+        }
+      } catch {}
     }
+  }
+
+  // Minimal country-name to ISO code mapper for common countries
+  const countryNameToCode = (name: string): string | null => {
+    const map: Record<string, string> = {
+      'United States': 'US',
+      'United Kingdom': 'GB',
+      'Canada': 'CA',
+      'Australia': 'AU',
+      'Germany': 'DE',
+      'France': 'FR',
+      'Saudi Arabia': 'SA',
+      'UAE': 'AE',
+      'Egypt': 'EG',
+      'Pakistan': 'PK',
+      'India': 'IN',
+      'Malaysia': 'MY',
+      'Indonesia': 'ID',
+      'Turkey': 'TR',
+    }
+    return map[name] || null
   }
 
   const selectPackage = (pkg: any) => {
@@ -745,7 +817,7 @@ const EnhancedEnrollmentForm = () => {
       days.push(
         <div
           key={day}
-          className={`w-12 h-12 flex flex-col items-center justify-center rounded-2xl cursor-pointer transition-all duration-300 text-sm font-semibold relative ${
+          className={`w-9 h-9 md:w-12 md:h-12 flex flex-col items-center justify-center rounded-2xl cursor-pointer transition-all duration-300 text-xs md:text-sm font-semibold relative ${
             isPast
               ? "bg-gray-50 text-gray-300 cursor-not-allowed"
               : isCurrentlySelected
@@ -1115,7 +1187,7 @@ const EnhancedEnrollmentForm = () => {
       slots.push(
         <div
           key={`${selectedDate}-${timeStr}${utcForSlot ? `-${utcForSlot}` : ''}`}
-          className={`px-4 py-3 rounded-2xl transition-all duration-300 text-center font-medium text-sm border-2 ${
+          className={`px-4 py-3 rounded-2xl min-h-[44px] transition-all duration-300 text-center font-medium text-sm border-2 ${
             isBooked
               ? "border-gray-200 bg-gray-100 text-gray-500 cursor-not-allowed opacity-70"
               : isWeekLimitReached
@@ -1419,6 +1491,86 @@ const EnhancedEnrollmentForm = () => {
             </div>
 
             <div className="space-y-6">
+              {/* Detect timezone and location - moved here as requested */}
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-2xl bg-amber-50 border border-amber-200">
+                <div className="flex items-center">
+                  <span className="text-2xl mr-3" aria-hidden>{countryFlag}</span>
+                  <p className="font-semibold text-amber-800">Your timezone: {userTimezone || '—'}</p>
+                </div>
+                <div className="flex-1" />
+                <button
+                  type="button"
+                  className="px-4 py-2 text-sm rounded-xl bg-white border border-amber-200 hover:bg-amber-100"
+                  onClick={async () => {
+                    if (typeof navigator !== 'undefined' && navigator.geolocation) {
+                      setGeoPrompted(true)
+                      navigator.geolocation.getCurrentPosition(async (pos) => {
+                        try {
+                          // Set timezone from Intl
+                          const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
+                          if (tz) setUserTimezone(tz)
+                          // Reverse geocode to fill country/state when possible
+                          const { latitude, longitude } = pos.coords
+                          try {
+                            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`)
+                            const data = await res.json()
+                            const addr = data && data.address ? data.address : {}
+                            const cc = (addr.country_code || '').toUpperCase()
+                            // Map to our country dropdown values
+                            const mapCountryCodeToName: Record<string, string> = {
+                              US: 'United States',
+                              GB: 'United Kingdom',
+                              AE: 'UAE',
+                              SA: 'Saudi Arabia',
+                              EG: 'Egypt',
+                              CA: 'Canada',
+                              AU: 'Australia',
+                              DE: 'Germany',
+                              FR: 'France',
+                              PK: 'Pakistan',
+                              IN: 'India',
+                              MY: 'Malaysia',
+                              ID: 'Indonesia',
+                              TR: 'Turkey',
+                            }
+                            const detectedCountry = mapCountryCodeToName[cc] || (addr.country || '')
+                            if (detectedCountry) {
+                              // Update form country
+                              setFormData((prev) => ({
+                                ...prev,
+                                personal: { ...prev.personal, country: detectedCountry }
+                              }))
+                              // Update flag
+                              try {
+                                const code = cc || countryNameToCode(detectedCountry) || ''
+                                if (code) {
+                                  const flag = code.replace(/./g, (c: string) => String.fromCodePoint(127397 + c.charCodeAt(0)))
+                                  setCountryFlag(flag)
+                                }
+                              } catch {}
+                              // If US, set state
+                              if (detectedCountry === 'United States') {
+                                const st = addr.state || addr.region || ''
+                                if (st) {
+                                  setUsState(st)
+                                  const tzz = getTimezoneForUSState(st)
+                                  if (tzz) setUserTimezone(tzz)
+                                }
+                              }
+                            }
+                          } catch {}
+                        } catch {}
+                      }, () => {
+                        setGeoPrompted(false)
+                        showToast('Location detection was blocked. You can select country and state manually.', 'info')
+                      })
+                    }
+                  }}
+                >
+                  Detect timezone & location
+                </button>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <label className="text-sm font-semibold text-gray-700 flex items-center">
@@ -1468,24 +1620,51 @@ const EnhancedEnrollmentForm = () => {
                   <label className="text-sm font-semibold text-gray-700 flex items-center">
                     Country <span className="text-red-500 ml-1">*</span>
                   </label>
-                  <select
-                    className="w-full px-4 py-4 bg-gray-50 border-0 rounded-2xl focus:bg-white focus:ring-2 focus:ring-blue-500 transition-all duration-300 text-gray-800"
-                    value={formData.personal.country || ""}
-                    onChange={(e) => updatePersonalInfo("country", e.target.value)}
-                    aria-label="Select country"
-                    title="Select your country"
-                    disabled={loadingCountries}
-                  >
-                    {loadingCountries ? (
-                      <option value="">Loading countries...</option>
-                    ) : (
-                      countries.map((country) => (
-                        <option key={country.value} value={country.value}>
-                          {country.label}
-                        </option>
-                      ))
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <select
+                      className="w-full px-4 py-4 bg-gray-50 border-0 rounded-2xl focus:bg-white focus:ring-2 focus:ring-blue-500 transition-all duration-300 text-gray-800"
+                      value={formData.personal.country || ""}
+                      onChange={(e) => updatePersonalInfo("country", e.target.value)}
+                      aria-label="Select country"
+                      title="Select your country"
+                      disabled={loadingCountries}
+                    >
+                      {loadingCountries ? (
+                        <option value="">Loading countries...</option>
+                      ) : (
+                        countries.map((country) => (
+                          <option key={country.value} value={country.value}>
+                            {country.label}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                    {stateOptions.length > 0 && (
+                      <select
+                        className="w-full px-4 py-4 bg-gray-50 border-0 rounded-2xl focus:bg-white focus:ring-2 focus:ring-blue-500 transition-all duration-300 text-gray-800"
+                        value={(formData.personal.country || '') === 'United States' ? usState : region}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          if ((formData.personal.country || '') === 'United States') {
+                            setUsState(v)
+                            const tz = getTimezoneForUSState(v)
+                            if (tz) setUserTimezone(tz)
+                          } else {
+                            setRegion(v)
+                            const tz = getTimezoneForRegion(formData.personal.country || '', v)
+                            if (tz) setUserTimezone(tz)
+                          }
+                        }}
+                        aria-label="Select state/region"
+                        title="Select state/region"
+                      >
+                        <option value="">Select state/region</option>
+                        {stateOptions.map((s: { name: string; code?: string }) => (
+                          <option key={s.code || s.name} value={s.name}>{s.name}</option>
+                        ))}
+                      </select>
                     )}
-                  </select>
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-semibold text-gray-700 flex items-center">
@@ -1548,22 +1727,7 @@ const EnhancedEnrollmentForm = () => {
                 <p className="mt-2 text-gray-500">Loading plans...</p>
               </div>
             ) : (
-              <>
-                {/* Diagnostic notice to help when API returns no plans */}
-                {!isLoadingPlans && plans.length === 0 && (
-                  <div className="mb-6 w-full max-w-3xl mx-auto p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
-                    <div className="font-semibold mb-2">No plans returned from API — showing local defaults.</div>
-                    <div className="text-xs text-yellow-900 mb-2">Check browser console & Network for the GET /plans request. We also log the request URL as <code>AppointmentAPI.getPlans requesting &lt;url&gt;</code>.</div>
-                    {plansDebug && (
-                      <details className="bg-white border rounded p-3 text-xs text-gray-800">
-                        <summary className="cursor-pointer font-medium">Show API result (debug)</summary>
-                        <pre className="whitespace-pre-wrap mt-2 text-xs">{plansDebug}</pre>
-                      </details>
-                    )}
-                  </div>
-                )}
-
-                <div className="flex flex-wrap gap-6 justify-center">
+              <div className="flex flex-wrap gap-6 justify-center">
                 {(plans.length > 0 ? plans : packages).map((pkg, index) => {
                   const isApiPlan = plans.length > 0
 
@@ -1694,7 +1858,6 @@ const EnhancedEnrollmentForm = () => {
                   )
                 })}
               </div>
-              </>
             )}
 
             <div className="flex justify-between">
@@ -1729,35 +1892,33 @@ const EnhancedEnrollmentForm = () => {
 
             <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-2xl p-4 mb-8 border border-amber-200">
               <div className="flex items-center">
-                <span className="text-2xl mr-3">🌍</span>
-                <div>
-                  <p className="font-semibold text-amber-800">Your timezone: {userTimezone}</p>
-                </div>
+                <span className="text-2xl mr-3" aria-hidden>{countryFlag}</span>
+                <p className="font-semibold text-amber-800">Your timezone: {userTimezone}</p>
               </div>
             </div>
 
             <div className="bg-gradient-to-br from-white to-gray-50 rounded-3xl p-8 mb-8 border border-gray-200">
-              <div className="flex justify-between items-center mb-8">
-                <h3 className="text-2xl font-semibold text-gray-800">
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-8">
+                <h3 className="text-xl md:text-2xl font-semibold text-gray-800">
                   {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
                 </h3>
-                <div className="flex gap-3">
+                <div className="flex gap-2 md:gap-3">
                   <button
                     onClick={() => changeMonth(-1)}
-                    className="p-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-2xl hover:scale-105 transition-all duration-300 shadow-lg"
+                    className="p-2 md:p-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-2xl hover:scale-105 transition-all duration-300 shadow-lg"
                   >
                     <span className="text-lg">←</span>
                   </button>
                   <button
                     onClick={() => changeMonth(1)}
-                    className="p-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-2xl hover:scale-105 transition-all duration-300 shadow-lg"
+                    className="p-2 md:p-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-2xl hover:scale-105 transition-all duration-300 shadow-lg"
                   >
                     <span className="text-lg">→</span>
                   </button>
                 </div>
               </div>
 
-              <div className="grid grid-cols-7 gap-4 mb-4">
+              <div className="grid grid-cols-7 gap-2 md:gap-4 mb-4 text-xs md:text-base">
                 {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
                   <div key={day} className="text-center font-bold text-gray-500 p-2">
                     {day}
@@ -1765,7 +1926,7 @@ const EnhancedEnrollmentForm = () => {
                 ))}
               </div>
 
-              <div className="grid grid-cols-7 gap-4">{generateCalendar()}</div>
+              <div className="grid grid-cols-7 gap-2 md:gap-4">{generateCalendar()}</div>
             </div>
 
             {selectedDate && (
@@ -1830,8 +1991,10 @@ const EnhancedEnrollmentForm = () => {
                     <p className="text-gray-500">Loading available time slots...</p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
-                    {generateTimeSlots()}
+                  <div className="max-h-[60vh] overflow-y-auto pr-1">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 md:gap-3">
+                      {generateTimeSlots()}
+                    </div>
                   </div>
                 )}
               </div>
@@ -1862,7 +2025,7 @@ const EnhancedEnrollmentForm = () => {
                     <p className="text-gray-400 text-sm">Choose dates and times from the calendar above</p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
                     {selectedSessions
                       .sort((a, b) => {
                         const dateA = new Date(`${a.date}T${a.time}:00`)
@@ -1874,7 +2037,7 @@ const EnhancedEnrollmentForm = () => {
                         return (
                           <div
                             key={index}
-                            className="bg-white rounded-2xl p-4 shadow-sm border border-green-200 flex items-center justify-between hover:shadow-md transition-all duration-300"
+                            className="bg-white rounded-2xl p-3 md:p-4 shadow-sm border border-green-200 flex items-center justify-between hover:shadow-md transition-all duration-300"
                           >
                             <div className="flex items-center">
                               <div className="w-3 h-3 bg-green-500 rounded-full mr-3"></div>

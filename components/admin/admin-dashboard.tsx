@@ -240,15 +240,17 @@ export default function AdminDashboard() {
   }
 
   const fetchAdminProfile = async (jwt: string) => {
-    try {
-      const res = await AppointmentAPI.adminGetProfile(jwt)
-      if (res.success) {
-        setAdminProfile(res.admin)
-        localStorage.setItem('admin_profile', JSON.stringify(res.admin))
-      }
-    } catch (e) {
-      // ignore
-    }
+    // Detect admin's current timezone
+    const detectedTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Africa/Cairo'
+    const defaultAdmin = { timezone: detectedTimezone }
+    setAdminProfile(defaultAdmin)
+    localStorage.setItem('admin_profile', JSON.stringify(defaultAdmin))
+  }
+
+  const changeAdminTimezone = (newTimezone: string) => {
+    const updated = { ...adminProfile, timezone: newTimezone }
+    setAdminProfile(updated)
+    localStorage.setItem('admin_profile', JSON.stringify(updated))
   }
 
   const fetchSubscriptions = async (jwt?: string) => {
@@ -580,7 +582,21 @@ export default function AdminDashboard() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold">Admin Dashboard</h1>
-            <p className="text-sm text-gray-500">{adminProfile ? `${adminProfile.name || adminProfile.email} • ${adminProfile.country || ''}` : 'Manage subscriptions'}</p>
+            <div className="flex items-center gap-2">
+              <p className="text-sm text-gray-500">Manage subscriptions and users</p>
+              {adminProfile?.timezone && (
+                <button 
+                  onClick={() => {
+                    const detected = Intl.DateTimeFormat().resolvedOptions().timeZone
+                    changeAdminTimezone(detected)
+                  }}
+                  className="text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 px-2 py-1 rounded border border-blue-200"
+                  title="Click to refresh timezone"
+                >
+                  🌍 {adminProfile.timezone}
+                </button>
+              )}
+            </div>
           </div>
             <div className="flex items-center gap-3">
             <div className="flex rounded-md bg-slate-100 p-1">
@@ -809,40 +825,30 @@ export default function AdminDashboard() {
                                         <th className="p-2 border-b">Original</th>
                                         <th className="p-2 border-b">Country</th>
                                         <th className="p-2 border-b">User ({'TZ'})</th>
-                                        <th className="p-2 border-b">Admin ({adminProfile?.timezone || 'local'})</th>
+                                        <th className="p-2 border-b">Admin ({adminProfile?.timezone || 'Detecting...'})</th>
                                       </tr>
                                     </thead>
                                     <tbody>
                                       {expanded[id].sessions.map((ss: any, i: number) => {
                                       const canonical = ss._utc || ss.startsAtUTC || ss.startsAt || null
-                                      // Original: unify to 'DD MMM YYYY, HH:mm' when date/time available
-                                      const originalDisplay = (() => {
-                                        try {
-                                          if (ss.date && (ss.time || ss._userTime)) {
-                                            // build a local date/time from date + time (assume time is HH:mm)
-                                            const timePart = (ss.time || ss._userTime || '').padEnd(5, '0')
-                                            const dt = new Date(`${ss.date}T${timePart}:00`)
-                                            const parts = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).format(dt)
-                                            const hhmm = `${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`
-                                            return `${parts}, ${hhmm}`
-                                          }
-                                          // fallback to combined
-                                          return `${ss.date || ss._userDate || '—'} ${ss.time || ss._userTime || ''}`.trim()
-                                        } catch (e) { return `${ss.date || ss._userDate || '—'} ${ss.time || ss._userTime || ''}`.trim() }
-                                      })()
                                       const userTz = ss.timezone || expanded[id].subscription.timezone || expanded[id].subscription.user?.timezone || undefined
-                                      const adminTz = adminProfile?.timezone || undefined
-                                      const country = expanded[id].subscription.displayCountry || expanded[id].subscription.user?.country || ss.country || ''
+                                      const adminTz = adminProfile?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'Africa/Cairo'
+                                      const country = ss.userCountry || expanded[id].subscription.displayCountry || expanded[id].subscription.user?.country || ss.country || ''
+                                      
+                                      // Session number text
+                                      const sessionNumbers = ['One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve']
+                                      const sessionLabel = `Session ${sessionNumbers[i] || (i + 1)}`
+                                      
                                       return (
                                         <tr key={i} className="align-top">
                                           <td className="p-2 border-b font-medium">{i + 1}</td>
                                           <td className="p-2 border-b">
-                                            <div className="font-medium">{originalDisplay}</div>
-                                            <div className="text-xs text-gray-500">{userTz || ''}</div>
+                                            <div className="font-medium text-base">{sessionLabel}</div>
+                                            <div className="text-xs text-gray-500 mt-1">{userTz || ''}</div>
                                           </td>
                                           <td className="p-2 border-b">{country || (userTz || '')}</td>
-                                          <td className="p-2 border-b">{canonical ? formatUserTZ(canonical, userTz) : originalDisplay}</td>
-                                          <td className="p-2 border-b">{canonical ? formatAdminTZ(canonical, adminTz) : originalDisplay}</td>
+                                          <td className="p-2 border-b">{canonical ? formatUserTZ(canonical, userTz) : '—'}</td>
+                                          <td className="p-2 border-b">{canonical ? formatAdminTZ(canonical, adminTz) : '—'}</td>
                                         </tr>
                                       )
                                     })}

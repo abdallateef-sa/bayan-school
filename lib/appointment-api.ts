@@ -124,6 +124,7 @@ export const AppointmentAPI = {
       phone: string
       gender: string
       country: string
+      timezone?: string
     }
   ): Promise<{ success: true; token: string; user: any } | ApiFailure> {
     try {
@@ -163,7 +164,6 @@ export const AppointmentAPI = {
   async getPlans(): Promise<{ success: true; plans: Plan[] } | ApiFailure> {
     try {
       const url = `${getBaseUrl()}/plans`
-      try { console.debug && console.debug('AppointmentAPI.getPlans requesting', url) } catch (e) {}
       const res = await fetch(url, { cache: "no-store" })
       const body = await parseJson(res)
       
@@ -301,17 +301,31 @@ export const AppointmentAPI = {
     }: {
       subscriptionPlanId: string
       startDate: string // YYYY-MM-DD
-      sessions: { date: string; time: string; notes?: string }[]
+      sessions: { date: string; time: string; notes?: string; startsAtUTC?: string }[]
       country?: string // User's country for timezone handling
     },
   ): Promise<{ success: true; subscription: any } | ApiFailure> {
     try {
       const url = `${getBaseUrl()}/user/complete-subscription`
       
+      // Ensure each session includes startsAtUTC (ISO in UTC)
+      const sessionsWithUTC = (sessions || []).map((s) => {
+        const hasUTC = s && (s as any).startsAtUTC
+        let startsAtUTC = (s as any).startsAtUTC
+        if (!hasUTC && s?.date && s?.time) {
+          try {
+            startsAtUTC = new Date(`${s.date}T${s.time}:00`).toISOString()
+          } catch {
+            startsAtUTC = undefined
+          }
+        }
+        return { ...s, startsAtUTC }
+      })
+
       const requestBody: any = { 
         subscriptionPlanId, 
         startDate, 
-        sessions 
+        sessions: sessionsWithUTC 
       }
       
       // Include country if provided for timezone handling
@@ -424,13 +438,16 @@ export const AppointmentAPI = {
   ): Promise<ApiSuccess<unknown> | ApiFailure> {
     try {
       const url = `${getBaseUrl()}/user/sessions`
+      // Compute startsAtUTC to satisfy backend requirement
+      let startsAtUTC: string | undefined
+      try { startsAtUTC = new Date(`${date}T${time}:00`).toISOString() } catch { startsAtUTC = undefined }
       const res = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${jwt}`,
         },
-        body: JSON.stringify({ subscriptionId, date, time, notes }),
+        body: JSON.stringify({ subscriptionId, date, time, notes, startsAtUTC }),
       })
       
       // Get raw response text first
@@ -492,6 +509,12 @@ export const AppointmentAPI = {
   ): Promise<ApiSuccess<unknown> | ApiFailure> {
     try {
       const url = `${getBaseUrl()}/user/sessions/bulk`
+      // Add startsAtUTC per session
+      const sessionsWithUTC = (sessions || []).map((s) => {
+        let startsAtUTC: string | undefined
+        try { startsAtUTC = new Date(`${s.date}T${s.time}:00`).toISOString() } catch { startsAtUTC = undefined }
+        return { ...s, startsAtUTC }
+      })
       
       const res = await fetch(url, {
         method: "POST",
@@ -499,7 +522,7 @@ export const AppointmentAPI = {
           "Content-Type": "application/json",
           Authorization: `Bearer ${jwt}`,
         },
-        body: JSON.stringify({ subscriptionId, sessions }),
+        body: JSON.stringify({ subscriptionId, sessions: sessionsWithUTC }),
       })
       
       // Get raw response text first
@@ -800,8 +823,6 @@ export const AppointmentAPI = {
   async adminGetPlans(jwt: string): Promise<{ success: true; plans: Plan[] } | ApiFailure> {
     try {
       const url = `${getBaseUrl()}/admin/subscription-plans`
-      // Debug: helps track requests in browser/server logs when investigating missing plans
-      try { console.debug && console.debug('adminGetPlans requesting', url, 'jwtProvided:', !!jwt) } catch (e) {}
       const res = await fetch(url, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
@@ -851,8 +872,6 @@ export const AppointmentAPI = {
   async adminUpdatePlan(jwt: string, planId: string, updates: Partial<Plan>): Promise<{ success: true; plan: Plan } | ApiFailure> {
     try {
       const url = `${getBaseUrl()}/admin/subscription-plans/${encodeURIComponent(planId)}`
-      // Debug: log update request URL and whether a jwt was provided
-      try { console.debug && console.debug('adminUpdatePlan', url, 'jwtProvided:', !!jwt) } catch (e) {}
       const res = await fetch(url, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
