@@ -1890,7 +1890,7 @@ const EnhancedEnrollmentForm = () => {
 
             <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-xl sm:rounded-2xl p-3 sm:p-4 mb-6 md:mb-8 border border-amber-200">
               <div className="flex items-center">
-                <span className="text-xl sm:text-2xl mr-2 sm:mr-3 shrink-0" aria-hidden>{countryFlag}</span>
+                <span className="text-xl sm:text-2xl mr-2 sm:mr-3 shrink-0" aria-hidden>🌍</span>
                 <p className="text-sm sm:text-base font-semibold text-amber-800">Your timezone: {userTimezone}</p>
               </div>
             </div>

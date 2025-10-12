@@ -26,9 +26,10 @@ const BayanEnrollmentForm = () => {
   const [maxSessions, setMaxSessions] = useState(0)
   const [userTimezone, setUserTimezone] = useState("")
   const [countries, setCountries] = useState<Array<{value: string, label: string}>>([])
-  const [loadingCountries, setLoadingCountries] = useState(false)
+  const [loadingCountries] = useState(false)
   const [usState, setUsState] = useState("")
   const [stateOptions, setStateOptions] = useState<Array<{ name: string; code?: string }>>([])
+  const [countryFlag, setCountryFlag] = useState<string>("🌍")
 
   // Persist timezone to profile if JWT available
   const persistTimezone = async (country?: string, timezone?: string) => {
@@ -66,26 +67,6 @@ const BayanEnrollmentForm = () => {
     }
   }
 
-  useEffect(() => {
-    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
-    setUserTimezone(timezone)
-    // Load countries from API
-    fetchCountries()
-  }, [])
-
-  // When country changes, load regions/states if available; clear otherwise
-  useEffect(() => {
-    const selected = formData.personal.country || ''
-    if (selected && selected !== 'other') {
-      fetchCountryStates(selected)
-        .then((states) => setStateOptions(states || []))
-        .catch(() => setStateOptions([]))
-    } else {
-      setStateOptions([])
-      setUsState("")
-    }
-  }, [formData.personal.country])
-
   // Country code to flag builder (more robust than relying on backend emoji)
   const flagFor = (code: string) => code.replace(/./g, (c) => String.fromCodePoint(127397 + c.charCodeAt(0)))
 
@@ -115,41 +96,77 @@ const BayanEnrollmentForm = () => {
     { value: "other", label: `🌍 Other` },
   ])
 
-  const fetchCountries = async () => {
-    setLoadingCountries(true)
-    try {
-      const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1'
-      // Fetch all supported countries from backend - backend should provide IANA timezones per country
-      const response = await fetch(`${apiBaseUrl}/countries`)
-      const data = await response.json()
-
-      if (data?.status === 'success' && data?.data?.countries && Array.isArray(data.data.countries)) {
-        // Curate important countries only
-        const preferred = new Set(['United States','United Kingdom','Canada','Egypt','Saudi Arabia','UAE','Germany','France','India','Pakistan','Australia'])
-        const ordered = ['United States','United Kingdom','Canada','Egypt','Saudi Arabia','UAE','Germany','France','India','Pakistan','Australia']
-        const codeFor: Record<string,string> = { 'United States':'US', 'United Kingdom':'GB', 'Canada':'CA', 'Egypt':'EG', 'Saudi Arabia':'SA', 'UAE':'AE', 'Germany':'DE', 'France':'FR', 'India':'IN', 'Pakistan':'PK', 'Australia':'AU' }
-        const curated = data.data.countries
-          .map((c: any) => ({ ...c, normName: normalizeCountryName(c.name) }))
-          .filter((c: any) => preferred.has(c.normName))
-          .sort((a: any, b: any) => ordered.indexOf(a.normName) - ordered.indexOf(b.normName))
-          .map((c: any) => {
-            const code = (c.code || c.iso2 || codeFor[c.normName] || '').toUpperCase()
-            const emoji = code && code.length === 2 ? flagFor(code) : '🌍'
-            return { value: c.normName, label: `${emoji} ${c.normName}` }
-          })
-        setCountries([{ value: "", label: "Select your country" }, ...curated, { value: "other", label: "🌍 Other" }])
-        // Successfully loaded curated countries
-      } else {
-        // Invalid response, using defaults
-        setCountries(getDefaultCountries())
-      }
-    } catch (error) {
-      console.error('Failed to fetch countries:', error)
-      setCountries(getDefaultCountries())
-    } finally {
-      setLoadingCountries(false)
+  // Get country code from country name
+  const getCountryCode = (countryName: string): string => {
+    const codes: Record<string, string> = {
+      'United States': 'US',
+      'United Kingdom': 'GB',
+      'Canada': 'CA',
+      'Egypt': 'EG',
+      'Saudi Arabia': 'SA',
+      'UAE': 'AE',
+      'Germany': 'DE',
+      'France': 'FR',
+      'India': 'IN',
+      'Pakistan': 'PK',
+      'Australia': 'AU',
     }
+    return codes[countryName] || ''
   }
+
+  useEffect(() => {
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+    setUserTimezone(timezone)
+    // Load countries - using static list
+    setCountries(getDefaultCountries())
+    
+    // Set initial flag based on timezone
+    if (timezone.includes('Cairo') || timezone.includes('Africa/Cairo')) {
+      setCountryFlag(flagFor('EG')) // Egypt
+    } else if (timezone.includes('America/New_York') || timezone.includes('America/Chicago') || timezone.includes('America/Los_Angeles') || timezone.includes('America/Denver')) {
+      setCountryFlag(flagFor('US')) // United States
+    } else if (timezone.includes('Europe/London')) {
+      setCountryFlag(flagFor('GB')) // United Kingdom
+    } else if (timezone.includes('America/Toronto') || timezone.includes('America/Vancouver')) {
+      setCountryFlag(flagFor('CA')) // Canada
+    } else if (timezone.includes('Asia/Riyadh')) {
+      setCountryFlag(flagFor('SA')) // Saudi Arabia
+    } else if (timezone.includes('Asia/Dubai')) {
+      setCountryFlag(flagFor('AE')) // UAE
+    } else if (timezone.includes('Europe/Berlin')) {
+      setCountryFlag(flagFor('DE')) // Germany
+    } else if (timezone.includes('Europe/Paris')) {
+      setCountryFlag(flagFor('FR')) // France
+    } else if (timezone.includes('Asia/Kolkata')) {
+      setCountryFlag(flagFor('IN')) // India
+    } else if (timezone.includes('Asia/Karachi')) {
+      setCountryFlag(flagFor('PK')) // Pakistan
+    } else if (timezone.includes('Australia/Sydney') || timezone.includes('Australia/Melbourne')) {
+      setCountryFlag(flagFor('AU')) // Australia
+    } else {
+      setCountryFlag('🌍') // Default world icon
+    }
+  }, [])
+
+  // When country changes, load regions/states if available; clear otherwise
+  useEffect(() => {
+    const selected = formData.personal.country || ''
+    if (selected && selected !== 'other') {
+      // Update country flag
+      const code = getCountryCode(selected)
+      if (code) {
+        setCountryFlag(flagFor(code))
+      }
+      
+      fetchCountryStates(selected)
+        .then((states) => setStateOptions(states || []))
+        .catch(() => setStateOptions([]))
+    } else {
+      setStateOptions([])
+      setUsState("")
+      setCountryFlag("🌍")
+    }
+  }, [formData.personal.country])
 
   const packages = [
     {

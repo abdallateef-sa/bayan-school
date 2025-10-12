@@ -78,25 +78,44 @@ export async function fetchCountryStates(countryName: string): Promise<StateOpti
 
 // Create a curated country list from a larger list, preserving a preferred order
 export function curateCountries(all: Array<{ name: string; emoji?: string }>): CountryOption[] {
-  const preferredOrder = [
-    'United States',
-    'United Kingdom',
-    'Canada',
-    'Egypt',
-    'Saudi Arabia',
-    'UAE',
-    'Germany',
-    'France',
-    'India',
-    'Pakistan',
-    'Australia',
+  // Country code to flag emoji converter
+  const flagFor = (code: string) => code.replace(/./g, (c) => String.fromCodePoint(127397 + c.charCodeAt(0)))
+  
+  const preferredCountries = [
+    { name: 'United States', code: 'US' },
+    { name: 'United Kingdom', code: 'GB' },
+    { name: 'Canada', code: 'CA' },
+    { name: 'Egypt', code: 'EG' },
+    { name: 'Saudi Arabia', code: 'SA' },
+    { name: 'UAE', code: 'AE' },
+    { name: 'Germany', code: 'DE' },
+    { name: 'France', code: 'FR' },
+    { name: 'India', code: 'IN' },
+    { name: 'Pakistan', code: 'PK' },
+    { name: 'Australia', code: 'AU' },
   ]
 
-  const preferredSet = new Set(preferredOrder)
-  const mapped = all
-    .filter((c) => preferredSet.has(c.name))
-    .sort((a, b) => preferredOrder.indexOf(a.name) - preferredOrder.indexOf(b.name))
-    .map((country) => ({ value: country.name, label: `${country.emoji || '🌍'} ${country.name}` }))
+  // If all array is provided and not empty, use it to filter
+  const preferredSet = new Set(preferredCountries.map(c => c.name))
+  
+  let mapped: CountryOption[]
+  if (all && all.length > 0) {
+    // Filter from provided array
+    mapped = all
+      .filter((c) => preferredSet.has(c.name))
+      .sort((a, b) => {
+        const aIndex = preferredCountries.findIndex(p => p.name === a.name)
+        const bIndex = preferredCountries.findIndex(p => p.name === b.name)
+        return aIndex - bIndex
+      })
+      .map((country) => ({ value: country.name, label: `${country.emoji || '🌍'} ${country.name}` }))
+  } else {
+    // Use static list with flag emojis
+    mapped = preferredCountries.map(country => ({
+      value: country.name,
+      label: `${flagFor(country.code)} ${country.name}`
+    }))
+  }
 
   const options: CountryOption[] = [
     { value: '', label: 'Select your country' },
