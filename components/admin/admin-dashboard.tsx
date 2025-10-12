@@ -25,6 +25,7 @@ function PlanForm({ initial, onCancel, onSave }: { initial?: any; onCancel: () =
   const [price, setPrice] = useState(initial?.price ?? initial?.amount ?? 0)
   const [currency, setCurrency] = useState(initial?.currency || 'USD')
   const [order, setOrder] = useState(initial?.order ?? 0)
+  const [badge, setBadge] = useState(initial?.badge || '')
   // duration can be one of presets or a custom number
   const presets = [30, 60, 90, 120]
   const initialDuration = typeof initial?.duration === 'number' ? initial.duration : 30
@@ -46,6 +47,7 @@ function PlanForm({ initial, onCancel, onSave }: { initial?: any; onCancel: () =
       currency: currency || 'EGP',
       duration: finalDuration,
       order: Number(order) || 0,
+      badge: badge.trim(),
       features: Array.isArray(features) ? features.filter(Boolean) : [],
     }
     await onSave(payload)
@@ -71,7 +73,7 @@ function PlanForm({ initial, onCancel, onSave }: { initial?: any; onCancel: () =
           <input title="Sessions per week" placeholder="2" type="number" className="w-full border rounded px-2 py-1" value={sessionsPerWeek} onChange={(e) => setSessionsPerWeek(Number(e.target.value))} />
         </div>
       </div>
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 gap-2">
         <div>
           <label className="text-xs text-gray-500">Price</label>
           <input title="Price" placeholder="1000" type="number" className="w-full border rounded px-2 py-1" value={price} onChange={(e) => setPrice(Number(e.target.value))} />
@@ -82,9 +84,22 @@ function PlanForm({ initial, onCancel, onSave }: { initial?: any; onCancel: () =
             <option value="USD">USD</option>
           </select>
         </div>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
         <div>
           <label className="text-xs text-gray-500">Order</label>
           <input title="Display order (lower numbers appear first)" placeholder="0" type="number" className="w-full border rounded px-2 py-1" value={order} onChange={(e) => setOrder(Number(e.target.value))} />
+        </div>
+        <div>
+          <label className="text-xs text-gray-500">Badge</label>
+          <select title="Plan badge (optional)" className="w-full border rounded px-2 py-1" value={badge} onChange={(e) => setBadge(e.target.value)}>
+            <option value="">None</option>
+            <option value="Best Seller">🔥 Best Seller</option>
+            <option value="Most Popular">⭐ Most Popular</option>
+            <option value="Recommended">✨ Recommended</option>
+            <option value="New">🆕 New</option>
+            <option value="Limited Offer">⏰ Limited Offer</option>
+          </select>
         </div>
         <div>
           <label className="text-xs text-gray-500">Duration (days)</label>
@@ -1081,6 +1096,7 @@ export default function AdminDashboard() {
                   <TableHead>#</TableHead>
                   <TableHead>Order</TableHead>
                   <TableHead>Name</TableHead>
+                  <TableHead>Badge</TableHead>
                   <TableHead>Price</TableHead>
                   <TableHead>Currency</TableHead>
                   <TableHead>Sessions / Month</TableHead>
@@ -1111,6 +1127,20 @@ export default function AdminDashboard() {
                         <span className="text-sm font-medium">{p.order ?? i}</span>
                       </TableCell>
                       <TableCell className="font-medium">{p.name || '—'}</TableCell>
+                      <TableCell>
+                        {p.badge ? (
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gradient-to-r from-orange-400 to-pink-500 text-white shadow-sm">
+                            {p.badge === 'Best Seller' && '🔥'}
+                            {p.badge === 'Most Popular' && '⭐'}
+                            {p.badge === 'Recommended' && '✨'}
+                            {p.badge === 'New' && '🆕'}
+                            {p.badge === 'Limited Offer' && '⏰'}
+                            {' '}{p.badge}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400 text-xs">—</span>
+                        )}
+                      </TableCell>
                       <TableCell>{(p.price ?? p.amount ?? 0).toLocaleString?.() ?? p.price ?? '—'}</TableCell>
                       <TableCell>{p.currency || 'EGP'}</TableCell>
                       <TableCell>{p.sessionsPerMonth ?? p.sessionsPerMonth ?? '—'}</TableCell>

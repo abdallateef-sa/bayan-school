@@ -14,6 +14,7 @@ export type Plan = {
   isActive?: boolean
   pricePerSession?: number
   order?: number
+  badge?: string // e.g., "Best Seller", "Most Popular", "Recommended"
 }
 
 type ApiSuccess<T> = { success: true; data?: T; message?: string }

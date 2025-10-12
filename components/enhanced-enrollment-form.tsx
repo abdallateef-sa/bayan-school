@@ -786,7 +786,7 @@ const EnhancedEnrollmentForm = () => {
     const days = []
 
     for (let i = 0; i < firstDay; i++) {
-      days.push(<div key={`empty-${i}`} className="w-12 h-12"></div>)
+      days.push(<div key={`empty-${i}`} className="w-9 h-9 sm:w-10 sm:h-10 md:w-12 md:h-12"></div>)
     }
 
     for (let day = 1; day <= daysInMonth; day++) {
@@ -817,16 +817,16 @@ const EnhancedEnrollmentForm = () => {
       days.push(
         <div
           key={day}
-          className={`w-9 h-9 md:w-12 md:h-12 flex flex-col items-center justify-center rounded-2xl cursor-pointer transition-all duration-300 text-xs md:text-sm font-semibold relative ${
+          className={`w-9 h-9 sm:w-10 sm:h-10 md:w-12 md:h-12 flex flex-col items-center justify-center rounded-xl sm:rounded-2xl cursor-pointer transition-all duration-300 text-[11px] sm:text-xs md:text-sm font-semibold relative ${
             isPast
               ? "bg-gray-50 text-gray-300 cursor-not-allowed"
               : isCurrentlySelected
-                ? "bg-gradient-to-br from-blue-500 to-purple-600 text-white shadow-xl scale-110 shadow-blue-200"
+                ? "bg-gradient-to-br from-blue-500 to-purple-600 text-white shadow-xl scale-105 sm:scale-110 shadow-blue-200"
                 : isSelected
                   ? "bg-gradient-to-br from-blue-50 to-purple-50 text-blue-600 border-2 border-blue-200"
                   : isWeekFull
                   ? "bg-orange-50 text-orange-600 border-2 border-orange-200 cursor-not-allowed opacity-70"
-                  : "bg-white text-gray-700 border-2 border-gray-100 hover:border-blue-200 hover:bg-gradient-to-br hover:from-blue-50 hover:to-purple-50 hover:scale-105 hover:shadow-lg"
+                  : "bg-white text-gray-700 border border-gray-100 hover:border-blue-200 hover:bg-gradient-to-br hover:from-blue-50 hover:to-purple-50 sm:hover:scale-105 hover:shadow-lg"
           }`}
           onClick={isPast || isWeekFull ? undefined : () => selectDate(dateStr)}
           title={
@@ -839,15 +839,15 @@ const EnhancedEnrollmentForm = () => {
               : "Available for booking"
           }
         >
-          <span className="text-xs">{day}</span>
+          <span className="text-[10px] sm:text-xs">{day}</span>
           {/* booked-count badge removed as per UX request */}
           {isWeekFull && !isSelected && (
-            <div className="absolute -top-1 -right-1 w-4 h-4 bg-orange-500 rounded-full flex items-center justify-center">
-              <span className="text-white text-xs leading-none">!</span>
+            <div className="absolute -top-0.5 sm:-top-1 -right-0.5 sm:-right-1 w-3.5 h-3.5 sm:w-4 sm:h-4 bg-orange-500 rounded-full flex items-center justify-center">
+              <span className="text-white text-[10px] sm:text-xs leading-none">!</span>
             </div>
           )}
           {isSelected && (
-            <span className="text-xs leading-none">✓</span>
+            <span className="text-[10px] sm:text-xs leading-none">✓</span>
           )}
         </div>,
       )
@@ -1187,14 +1187,14 @@ const EnhancedEnrollmentForm = () => {
       slots.push(
         <div
           key={`${selectedDate}-${timeStr}${utcForSlot ? `-${utcForSlot}` : ''}`}
-          className={`px-4 py-3 rounded-2xl min-h-[44px] transition-all duration-300 text-center font-medium text-sm border-2 ${
+          className={`px-2.5 sm:px-3 md:px-4 py-2 sm:py-2.5 md:py-3 rounded-xl sm:rounded-2xl min-h-[40px] sm:min-h-[44px] transition-all duration-300 text-center font-medium text-xs sm:text-sm border-2 ${
             isBooked
               ? "border-gray-200 bg-gray-100 text-gray-500 cursor-not-allowed opacity-70"
               : isWeekLimitReached
               ? "border-orange-200 bg-orange-50 text-orange-400 cursor-not-allowed opacity-60"
               : isSelected
               ? "border-blue-500 bg-gradient-to-br from-blue-500 to-purple-600 text-white shadow-lg transform scale-105 cursor-pointer"
-              : "border-gray-200 bg-white text-gray-700 hover:border-blue-300 hover:bg-gradient-to-br hover:from-blue-50 hover:to-purple-50 hover:scale-105 hover:shadow-md cursor-pointer"
+              : "border-gray-200 bg-white text-gray-700 hover:border-blue-300 hover:bg-gradient-to-br hover:from-blue-50 hover:to-purple-50 sm:hover:scale-105 hover:shadow-md cursor-pointer"
           }`}
           onClick={isWeekLimitReached || isBooked ? undefined : () => toggleTimeSlot(slotItem)}
           title={
@@ -1206,10 +1206,10 @@ const EnhancedEnrollmentForm = () => {
           }
         >
           <div className="flex flex-col">
-            <span>{displayTime}</span>
+            <span className="text-xs sm:text-sm">{displayTime}</span>
           </div>
-          {isBooked && <span className="block text-xs mt-1">Booked</span>}
-          {isWeekLimitReached && !isBooked && <span className="block text-xs mt-1">Week Full</span>}
+          {isBooked && <span className="block text-[10px] sm:text-xs mt-0.5 sm:mt-1">Booked</span>}
+          {isWeekLimitReached && !isBooked && <span className="block text-[10px] sm:text-xs mt-0.5 sm:mt-1">Week Full</span>}
         </div>,
       )
     }
@@ -1750,8 +1750,10 @@ const EnhancedEnrollmentForm = () => {
                       }
                     : { ...(pkg as any), currency: (pkg as any).currency || 'USD' }
 
-                  const sessionDuration = ((displayPkg as any).duration || 30) / ((displayPkg as any).sessions || 8) * 30
+                  const sessionDuration = ( 30) 
                   const pricePerSession = ((displayPkg as any).price || 0) / ((displayPkg as any).sessions || 1)
+
+                  const badge = isApiPlan ? (pkg as any).badge : null
 
                   return (
                     <div
@@ -1763,6 +1765,18 @@ const EnhancedEnrollmentForm = () => {
                       }`}
                       onClick={() => selectPackage(displayPkg)}
                     >
+                      {badge && (
+                        <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-10">
+                          <span className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-bold bg-gradient-to-r from-orange-400 to-pink-500 text-white shadow-lg whitespace-nowrap">
+                            {badge === 'Best Seller' && '🔥 '}
+                            {badge === 'Most Popular' && '⭐ '}
+                            {badge === 'Recommended' && '✨ '}
+                            {badge === 'New' && '🆕 '}
+                            {badge === 'Limited Offer' && '⏰ '}
+                            {badge}
+                          </span>
+                        </div>
+                      )}
                       <div className="mb-3">
                         <div className="flex items-start justify-between gap-2 mb-2">
                           <h3 className="text-lg md:text-xl font-bold text-gray-800">{(displayPkg as any).name}</h3>
@@ -1775,30 +1789,43 @@ const EnhancedEnrollmentForm = () => {
 
                       <div className="mb-4">
                         <div className="flex items-baseline gap-1">
-                          <span className="text-3xl md:text-4xl font-bold text-gray-800">
-                            ${(displayPkg as any).price || 0}
-                          </span>
-                          <span className="text-sm text-gray-500">/ course</span>
+                          {(displayPkg as any).price === 0 || !(displayPkg as any).price ? (
+                            <span className="text-3xl md:text-4xl font-bold text-gray-600">
+                              TBD
+                            </span>
+                          ) : (
+                            <>
+                              <span className="text-3xl md:text-4xl font-bold text-gray-800">
+                                ${(displayPkg as any).price}
+                              </span>
+                              <span className="text-sm text-gray-500">/ course</span>
+                            </>
+                          )}
                         </div>
                       </div>
 
                       <div className="space-y-2 mb-4">
-                        <div className="flex items-start text-sm text-gray-700">
-                          <span className="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-1.5 flex-shrink-0"></span>
-                          <span>{(displayPkg as any).sessions || 0} sessions per month</span>
-                        </div>
-                        <div className="flex items-start text-sm text-gray-700">
-                          <span className="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-1.5 flex-shrink-0"></span>
-                          <span>{(displayPkg as any).sessionsPerWeek || 0} sessions per week</span>
-                        </div>
-                        <div className="flex items-start text-sm text-gray-700">
-                          <span className="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-1.5 flex-shrink-0"></span>
-                          <span>{Math.round(sessionDuration)} minutes per session</span>
-                        </div>
-                        <div className="flex items-start text-sm text-gray-700">
-                          <span className="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-1.5 flex-shrink-0"></span>
-                          <span>{(displayPkg as any).currency || 'USD'} {(displayPkg as any).price || 0} total</span>
-                        </div>
+                        {/* Only show details if price is not 0 */}
+                        {((displayPkg as any).price !== 0 && (displayPkg as any).price) && (
+                          <>
+                            <div className="flex items-start text-sm text-gray-700">
+                              <span className="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-1.5 flex-shrink-0"></span>
+                              <span>{(displayPkg as any).sessions || 0} sessions per month</span>
+                            </div>
+                            <div className="flex items-start text-sm text-gray-700">
+                              <span className="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-1.5 flex-shrink-0"></span>
+                              <span>{(displayPkg as any).sessionsPerWeek || 0} sessions per week</span>
+                            </div>
+                            <div className="flex items-start text-sm text-gray-700">
+                              <span className="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-1.5 flex-shrink-0"></span>
+                              <span>{Math.round(sessionDuration)} minutes per session</span>
+                            </div>
+                            <div className="flex items-start text-sm text-gray-700">
+                              <span className="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-1.5 flex-shrink-0"></span>
+                              <span>{(displayPkg as any).currency || 'USD'} {(displayPkg as any).price} total</span>
+                            </div>
+                          </>
+                        )}
                         {(() => {
                           const features = (displayPkg as any).features || []
                           const featuresArr: string[] = Array.isArray(features) 
@@ -1850,50 +1877,50 @@ const EnhancedEnrollmentForm = () => {
 
         {/* Step 4: Schedule Selection */}
         {currentStep === 4 && (
-          <div className="animate-in fade-in-50 slide-in-from-right-4 duration-700">
-            <div className="flex items-center mb-8">
-              <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center mr-4">
-                <span className="text-white text-xl">📅</span>
+          <div className="animate-in fade-in-50 slide-in-from-right-4 duration-700 px-2 sm:px-4 md:px-0">
+            <div className="flex items-center mb-6 md:mb-8">
+              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center mr-3 sm:mr-4 shrink-0">
+                <span className="text-white text-lg sm:text-xl">📅</span>
               </div>
               <div>
-                <h2 className="text-3xl font-bold text-gray-800">Schedule Your Sessions</h2>
-                <p className="text-gray-500">Pick your preferred dates and times</p>
+                <h2 className="text-2xl sm:text-3xl font-bold text-gray-800">Schedule Your Sessions</h2>
+                <p className="text-sm sm:text-base text-gray-500">Pick your preferred dates and times</p>
               </div>
             </div>
 
-            <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-2xl p-4 mb-8 border border-amber-200">
+            <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-xl sm:rounded-2xl p-3 sm:p-4 mb-6 md:mb-8 border border-amber-200">
               <div className="flex items-center">
-                <span className="text-2xl mr-3" aria-hidden>{countryFlag}</span>
-                <p className="font-semibold text-amber-800">Your timezone: {userTimezone}</p>
+                <span className="text-xl sm:text-2xl mr-2 sm:mr-3 shrink-0" aria-hidden>{countryFlag}</span>
+                <p className="text-sm sm:text-base font-semibold text-amber-800">Your timezone: {userTimezone}</p>
               </div>
             </div>
 
-            <div className="bg-gradient-to-br from-green-50 to-teal-50 rounded-3xl p-8 mb-8 border border-green-200">
-              <div className="flex items-center justify-between mb-6">
-                <h4 className="text-2xl font-semibold text-gray-800 flex items-center">
-                  <span className="w-8 h-8 bg-green-500 rounded-xl flex items-center justify-center mr-3">
-                    <span className="text-white text-sm">✓</span>
+            <div className="bg-gradient-to-br from-green-50 to-teal-50 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 mb-6 md:mb-8 border border-green-200">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 mb-4 sm:mb-6">
+                <h4 className="text-lg sm:text-xl md:text-2xl font-semibold text-gray-800 flex items-center">
+                  <span className="w-7 h-7 sm:w-8 sm:h-8 bg-green-500 rounded-xl flex items-center justify-center mr-2 sm:mr-3 shrink-0">
+                    <span className="text-white text-xs sm:text-sm">✓</span>
                   </span>
                   Selected Sessions
                 </h4>
-                <div className="bg-white rounded-2xl px-4 py-2 shadow-sm border">
-                  <span className="font-bold text-green-600">{selectedSessions.length}</span>
-                  <span className="text-gray-500"> / </span>
-                  <span className="font-bold text-gray-700">{maxSessions}</span>
+                <div className="bg-white rounded-xl sm:rounded-2xl px-3 sm:px-4 py-1.5 sm:py-2 shadow-sm border self-start sm:self-auto">
+                  <span className="font-bold text-green-600 text-sm sm:text-base">{selectedSessions.length}</span>
+                  <span className="text-gray-500 text-sm sm:text-base"> / </span>
+                  <span className="font-bold text-gray-700 text-sm sm:text-base">{maxSessions}</span>
                 </div>
               </div>
 
-              <div className="space-y-4">
+              <div className="space-y-3 sm:space-y-4">
                 {selectedSessions.length === 0 ? (
-                  <div className="text-center py-8">
-                    <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <span className="text-2xl text-gray-400">📅</span>
+                  <div className="text-center py-6 sm:py-8">
+                    <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-3 sm:mb-4">
+                      <span className="text-xl sm:text-2xl text-gray-400">📅</span>
                     </div>
-                    <p className="text-gray-500 font-medium">No sessions selected yet</p>
-                    <p className="text-gray-400 text-sm">Choose dates and times from the calendar above</p>
+                    <p className="text-sm sm:text-base text-gray-500 font-medium">No sessions selected yet</p>
+                    <p className="text-xs sm:text-sm text-gray-400 mt-1">Choose dates and times from the calendar below</p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 md:gap-4">
                     {selectedSessions
                       .sort((a, b) => {
                         const dateA = new Date(`${a.date}T${a.time}:00`)
@@ -1905,19 +1932,19 @@ const EnhancedEnrollmentForm = () => {
                         return (
                           <div
                             key={index}
-                            className="bg-white rounded-2xl p-3 md:p-4 shadow-sm border border-green-200 flex items-center justify-between hover:shadow-md transition-all duration-300"
+                            className="bg-white rounded-xl sm:rounded-2xl p-3 sm:p-4 shadow-sm border border-green-200 flex items-center justify-between hover:shadow-md transition-all duration-300"
                           >
-                            <div className="flex items-center">
-                              <div className="w-3 h-3 bg-green-500 rounded-full mr-3"></div>
-                              <div>
-                                <p className="font-semibold text-gray-800">
+                            <div className="flex items-center min-w-0">
+                              <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 bg-green-500 rounded-full mr-2 sm:mr-3 shrink-0"></div>
+                              <div className="min-w-0">
+                                <p className="text-sm sm:text-base font-semibold text-gray-800 truncate">
                                   {date.toLocaleDateString("en-US", {
                                     month: "short",
                                     day: "numeric",
                                     weekday: "short",
                                   })}
                                 </p>
-                                <p className="text-sm text-gray-500">
+                                <p className="text-xs sm:text-sm text-gray-500">
                                   {date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                                 </p>
                               </div>
@@ -1926,7 +1953,7 @@ const EnhancedEnrollmentForm = () => {
                               onClick={() => {
                                 setSelectedSessions((prev) => prev.filter((_, i) => i !== index))
                               }}
-                              className="w-8 h-8 bg-red-100 hover:bg-red-200 text-red-600 rounded-full flex items-center justify-center transition-all duration-300 hover:scale-110"
+                              className="w-7 h-7 sm:w-8 sm:h-8 bg-red-100 hover:bg-red-200 text-red-600 rounded-full flex items-center justify-center transition-all duration-300 hover:scale-110 shrink-0 ml-2"
                             >
                               ×
                             </button>
@@ -1938,41 +1965,41 @@ const EnhancedEnrollmentForm = () => {
               </div>
             </div>
 
-            <div className="bg-gradient-to-br from-white to-gray-50 rounded-3xl p-8 mb-8 border border-gray-200">
-              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-8">
-                <h3 className="text-xl md:text-2xl font-semibold text-gray-800">
+            <div className="bg-gradient-to-br from-white to-gray-50 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 mb-6 md:mb-8 border border-gray-200">
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4 sm:mb-6 md:mb-8">
+                <h3 className="text-lg sm:text-xl md:text-2xl font-semibold text-gray-800">
                   {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
                 </h3>
-                <div className="flex gap-2 md:gap-3">
+                <div className="flex gap-2 sm:gap-3">
                   <button
                     onClick={() => changeMonth(-1)}
-                    className="p-2 md:p-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-2xl hover:scale-105 transition-all duration-300 shadow-lg"
+                    className="p-2 sm:p-2.5 md:p-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl sm:rounded-2xl hover:scale-105 transition-all duration-300 shadow-lg"
                   >
-                    <span className="text-lg">←</span>
+                    <span className="text-base sm:text-lg">←</span>
                   </button>
                   <button
                     onClick={() => changeMonth(1)}
-                    className="p-2 md:p-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-2xl hover:scale-105 transition-all duration-300 shadow-lg"
+                    className="p-2 sm:p-2.5 md:p-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl sm:rounded-2xl hover:scale-105 transition-all duration-300 shadow-lg"
                   >
-                    <span className="text-lg">→</span>
+                    <span className="text-base sm:text-lg">→</span>
                   </button>
                 </div>
               </div>
 
-              <div className="grid grid-cols-7 gap-2 md:gap-4 mb-4 text-xs md:text-base">
+              <div className="grid grid-cols-7 gap-1 sm:gap-2 md:gap-4 mb-2 sm:mb-3 md:mb-4 text-[10px] sm:text-xs md:text-base">
                 {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
-                  <div key={day} className="text-center font-bold text-gray-500 p-2">
+                  <div key={day} className="text-center font-bold text-gray-500 p-1 sm:p-2">
                     {day}
                   </div>
                 ))}
               </div>
 
-              <div className="grid grid-cols-7 gap-2 md:gap-4">{generateCalendar()}</div>
+              <div className="grid grid-cols-7 gap-1 sm:gap-2 md:gap-4">{generateCalendar()}</div>
             </div>
 
             {selectedDate && (
-              <div className="bg-gradient-to-br from-blue-50 to-purple-50 rounded-3xl p-8 mb-8 border border-blue-200">
-                <h3 className="text-2xl font-semibold mb-6 text-gray-800">
+              <div className="bg-gradient-to-br from-blue-50 to-purple-50 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 mb-6 md:mb-8 border border-blue-200">
+                <h3 className="text-lg sm:text-xl md:text-2xl font-semibold mb-4 sm:mb-6 text-gray-800">
                   Select Time Slots for{" "}
                   {new Date(selectedDate + "T00:00:00").toLocaleDateString("en-US", {
                     weekday: "long",
@@ -1996,26 +2023,26 @@ const EnhancedEnrollmentForm = () => {
                   }).length
                   
                   return (
-                    <div className="bg-white rounded-2xl p-4 mb-6 border border-blue-100">
-                      <div className="flex justify-between items-center">
+                    <div className="bg-white rounded-xl sm:rounded-2xl p-3 sm:p-4 mb-4 sm:mb-6 border border-blue-100">
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                         <div>
-                          <p className="text-sm text-gray-600">Week Period:</p>
-                          <p className="font-semibold text-gray-800">
+                          <p className="text-xs sm:text-sm text-gray-600">Week Period:</p>
+                          <p className="text-sm sm:text-base font-semibold text-gray-800">
                             {weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                           </p>
                         </div>
-                        <div className="text-right">
-                          <p className="text-sm text-gray-600">Sessions Used:</p>
-                          <p className={`font-bold text-lg ${sessionsInWeek >= sessionsPerWeek ? 'text-orange-600' : 'text-green-600'}`}>
+                        <div className="text-left sm:text-right">
+                          <p className="text-xs sm:text-sm text-gray-600">Sessions Used:</p>
+                          <p className={`font-bold text-base sm:text-lg ${sessionsInWeek >= sessionsPerWeek ? 'text-orange-600' : 'text-green-600'}`}>
                             {sessionsInWeek} / {sessionsPerWeek}
                           </p>
                         </div>
                       </div>
                       {sessionsInWeek >= sessionsPerWeek && (
-                        <div className="mt-3 p-3 bg-orange-50 border border-orange-200 rounded-xl">
-                          <p className="text-sm text-orange-800 flex items-center">
-                            <span className="mr-2">⚠️</span>
-                            Weekly limit reached for this week. Select dates from other weeks.
+                        <div className="mt-3 p-2.5 sm:p-3 bg-orange-50 border border-orange-200 rounded-lg sm:rounded-xl">
+                          <p className="text-xs sm:text-sm text-orange-800 flex items-start sm:items-center">
+                            <span className="mr-2 shrink-0">⚠️</span>
+                            <span>Weekly limit reached for this week. Select dates from other weeks.</span>
                           </p>
                         </div>
                       )}
@@ -2023,17 +2050,17 @@ const EnhancedEnrollmentForm = () => {
                   )
                 })()}
 
-                <p className="text-gray-600 mb-6">
+                <p className="text-sm sm:text-base text-gray-600 mb-4 sm:mb-6">
                   Choose your preferred 30-minute sessions (combine for 60-minute sessions)
                 </p>
                 {isLoadingSlots ? (
-                  <div className="text-center py-8">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                    <p className="text-gray-500">Loading available time slots...</p>
+                  <div className="text-center py-6 sm:py-8">
+                    <div className="animate-spin rounded-full h-7 w-7 sm:h-8 sm:w-8 border-b-2 border-blue-600 mx-auto mb-3 sm:mb-4"></div>
+                    <p className="text-sm sm:text-base text-gray-500">Loading available time slots...</p>
                   </div>
                 ) : (
-                  <div className="max-h-[60vh] overflow-y-auto pr-1">
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 md:gap-3">
+                  <div className="max-h-[50vh] sm:max-h-[60vh] overflow-y-auto pr-1 sm:pr-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-2.5 md:gap-3">
                       {generateTimeSlots()}
                     </div>
                   </div>
@@ -2041,10 +2068,10 @@ const EnhancedEnrollmentForm = () => {
               </div>
             )}
 
-            <div className="flex justify-between mt-10">
+            <div className="flex justify-between gap-3 mt-6 sm:mt-8 md:mt-10">
               <button
                 onClick={() => previousStep(4)}
-                className="px-8 py-4 bg-gray-100 text-gray-700 rounded-2xl font-semibold hover:bg-gray-200 transition-all duration-300"
+                className="px-4 sm:px-6 md:px-8 py-3 sm:py-3.5 md:py-4 bg-gray-100 text-gray-700 rounded-xl sm:rounded-2xl text-sm sm:text-base font-semibold hover:bg-gray-200 transition-all duration-300"
                 disabled={isSubmitting}
               >
                 ← Back
@@ -2052,7 +2079,7 @@ const EnhancedEnrollmentForm = () => {
               <button
                 onClick={() => nextStep(4)}
                 disabled={isSubmitting}
-                className="px-8 py-4 bg-gradient-to-r from-green-500 to-teal-600 text-white rounded-2xl font-semibold hover:scale-105 transform transition-all duration-300 shadow-xl shadow-green-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                className="px-4 sm:px-6 md:px-8 py-3 sm:py-3.5 md:py-4 bg-gradient-to-r from-green-500 to-teal-600 text-white rounded-xl sm:rounded-2xl text-sm sm:text-base font-semibold hover:scale-105 transform transition-all duration-300 shadow-xl shadow-green-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
               >
                 {isSubmitting ? "Processing..." : "Complete Registration ✓"}
               </button>
@@ -2104,19 +2131,50 @@ const EnhancedEnrollmentForm = () => {
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <button
-                onClick={resetForm}
-                className="px-8 py-4 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-2xl font-semibold hover:scale-105 transform transition-all duration-300 shadow-xl shadow-blue-200"
-              >
-                New Registration
-              </button>
-              <button
-                onClick={printSummary}
-                className="px-8 py-4 bg-gray-100 text-gray-700 rounded-2xl font-semibold hover:bg-gray-200 transition-all duration-300"
-              >
-                Print Summary
-              </button>
+            {/* Action Buttons */}
+            <div className="space-y-6 max-w-2xl mx-auto mb-8">
+              {/* WhatsApp & PayPal Buttons */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <a
+                  href={`https://wa.me/${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER}?text=Hi, I just completed my registration at Bayan School. My name is ${formData.personal.firstName} ${formData.personal.lastName}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-2xl font-semibold hover:scale-105 transform transition-all duration-300 shadow-xl shadow-green-200"
+                >
+                  <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
+                  </svg>
+                  <span>Contact on WhatsApp</span>
+                </a>
+                
+                <a
+                  href={`https://www.paypal.com/paypalme/${process.env.NEXT_PUBLIC_PAYPAL_USERNAME}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-2xl font-semibold hover:scale-105 transform transition-all duration-300 shadow-xl shadow-blue-200"
+                >
+                  <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M7.076 21.337H2.47a.641.641 0 0 1-.633-.74L4.944.901C5.026.382 5.474 0 5.998 0h7.46c2.57 0 4.578.543 5.69 1.81 1.01 1.15 1.304 2.42 1.012 4.287-.023.143-.047.288-.077.437-.983 5.05-4.349 6.797-8.647 6.797h-2.19c-.524 0-.968.382-1.05.9l-1.12 7.106zm14.146-14.42a3.35 3.35 0 0 0-.607-.541c-.013.076-.026.175-.041.254-.93 4.778-4.005 7.201-9.138 7.201h-2.19a.563.563 0 0 0-.556.479l-1.187 7.527h-.506l-.24 1.516a.56.56 0 0 0 .554.647h3.882c.46 0 .85-.334.922-.788.06-.26.76-4.852.816-5.09a.932.932 0 0 1 .923-.788h.58c3.76 0 6.705-1.528 7.565-5.946.36-1.847.174-3.388-.777-4.471z"/>
+                  </svg>
+                  <span>Pay Now with PayPal</span>
+                </a>
+              </div>
+
+              {/* Other Buttons */}
+              <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                <button
+                  onClick={resetForm}
+                  className="px-8 py-4 bg-gradient-to-r from-purple-500 to-indigo-600 text-white rounded-2xl font-semibold hover:scale-105 transform transition-all duration-300 shadow-xl shadow-purple-200"
+                >
+                  New Registration
+                </button>
+                <button
+                  onClick={printSummary}
+                  className="px-8 py-4 bg-gray-100 text-gray-700 rounded-2xl font-semibold hover:bg-gray-200 transition-all duration-300"
+                >
+                  Print Summary
+                </button>
+              </div>
             </div>
           </div>
         )}
