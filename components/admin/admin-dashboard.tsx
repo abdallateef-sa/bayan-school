@@ -653,6 +653,7 @@ export default function AdminDashboard() {
                 <TableHead>#</TableHead>
                 <TableHead>User</TableHead>
                 <TableHead>Plan</TableHead>
+                <TableHead>Price</TableHead>
                 <TableHead>Start Date</TableHead>
                 <TableHead>Sessions</TableHead>
                 <TableHead>Confirm Payment</TableHead>
@@ -740,6 +741,11 @@ export default function AdminDashboard() {
                       </TableCell>
                       <TableCell className="cursor-pointer" role="button" tabIndex={0} onClick={() => toggleRow(s)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleRow(s) }}>{s.planName || s.subscriptionPlan?.name || '—'}</TableCell>
                       <TableCell className="cursor-pointer" role="button" tabIndex={0} onClick={() => toggleRow(s)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleRow(s) }}>{(() => {
+                        const price = Number(s.price ?? s.amount ?? s.subscriptionPrice ?? s.planPrice ?? s.subscriptionPlan?.price ?? s.plan?.price ?? 0)
+                        const currency = s.currency || s.subscriptionPlan?.currency || s.plan?.currency || 'USD'
+                        return price ? `${price.toLocaleString()} ${currency}` : '—'
+                      })()}</TableCell>
+                      <TableCell className="cursor-pointer" role="button" tabIndex={0} onClick={() => toggleRow(s)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleRow(s) }}>{(() => {
                         const d = s.startDate ? new Date(s.startDate) : (s.createdAt ? new Date(s.createdAt) : null)
                         return d ? new Intl.DateTimeFormat('en-GB', { year: 'numeric', month: 'short', day: '2-digit' }).format(d) : '—'
                       })()}</TableCell>
@@ -759,7 +765,7 @@ export default function AdminDashboard() {
 
                     {expanded[id] && (
                       <TableRow key={`exp-${id}`}>
-                        <TableCell colSpan={7} className="bg-gray-50">
+                        <TableCell colSpan={8} className="bg-gray-50">
                           <div className="p-4">
                             <h4 className="font-semibold mb-2">Subscription</h4>
                             <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-4">

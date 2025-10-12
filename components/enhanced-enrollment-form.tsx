@@ -64,7 +64,7 @@ const EnhancedEnrollmentForm = () => {
   const [otpSent, setOtpSent] = useState(false)
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false)
   const [isSendingOtp, setIsSendingOtp] = useState(false)
-  const [isLogin, setIsLogin] = useState(true)
+  const [isLogin, setIsLogin] = useState(false)
   const [jwtToken, setJwtToken] = useState("")
   const [isLoggedInUser, setIsLoggedInUser] = useState(false) // Track if user successfully logged in
 
@@ -1727,36 +1727,9 @@ const EnhancedEnrollmentForm = () => {
                 <p className="mt-2 text-gray-500">Loading plans...</p>
               </div>
             ) : (
-              <div className="flex flex-wrap gap-6 justify-center">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
                 {(plans.length > 0 ? plans : packages).map((pkg, index) => {
                   const isApiPlan = plans.length > 0
-
-                  // Helper to format price as '35$ USD' using DB currency
-                  const formatPrice = (price: number | undefined | null, currency?: string) => {
-                    if (price == null) return "N/A"
-                    const curr = currency || 'USD'
-                    try {
-                      const nf = new Intl.NumberFormat(undefined, { style: 'currency', currency: curr, minimumFractionDigits: 0 })
-                      const parts = nf.formatToParts(price)
-                      // Numeric parts (integer, group, decimal, fraction)
-                      const number = parts
-                        .filter(p => p.type === 'integer' || p.type === 'group' || p.type === 'decimal' || p.type === 'fraction')
-                        .map(p => p.value)
-                        .join('')
-                      const symbolPart = parts.find(p => p.type === 'currency')
-                      let symbol = symbolPart ? symbolPart.value : ''
-                      // Some locales include the country code in the currency part (e.g. 'US$').
-                      // Remove any leading ASCII letters (country code) and whitespace, leaving the punctuation/symbol.
-                      symbol = symbol.replace(/^[A-Za-z\s]+/, '')
-                      // If stripping removed everything (rare), fall back to removing digits/letters to leave punctuation
-                      if (!symbol) {
-                        symbol = (symbolPart ? symbolPart.value : '').replace(/[0-9A-Za-z\s]/g, '') || symbolPart?.value || ''
-                      }
-                      return `${number}${symbol} ${curr}`
-                    } catch (e) {
-                      return `${Number(price).toLocaleString()} ${curr}`
-                    }
-                  }
 
                   const displayPkg = isApiPlan
                     ? {
@@ -1765,95 +1738,89 @@ const EnhancedEnrollmentForm = () => {
                         description: (pkg as any).description || "Package plan",
                         sessions: (pkg as any).sessionsPerMonth || 8,
                         sessionsPerWeek: (pkg as any).sessionsPerWeek || 2,
+                        duration: (pkg as any).duration || 30,
                         price: (pkg as any).price ?? (pkg as any).pricePerSession ?? 0,
                         currency: (pkg as any).currency ?? 'USD',
-                        // preserve any free-form comments/notes from API so we can render them as bullets
-                        rawComments: (pkg as any).comments ?? (pkg as any).notes ?? '',
-                        // include features array from DB (common field name) so we can render them
                         features: (pkg as any).features ?? (pkg as any).details ?? [],
                         popular: index === 1,
-                        details: [
-                          `${(pkg as any).duration || 30} Days Course Duration`,
-                          `${(pkg as any).sessionsPerWeek || 2} sessions/week`,
-                          `${(pkg as any).sessionsPerMonth || 8} sessions/month`,
-                         
-                        ],
                       }
                     : { ...(pkg as any), currency: (pkg as any).currency || 'USD' }
+
+                  const sessionDuration = ((displayPkg as any).duration || 30) / ((displayPkg as any).sessions || 8) * 30
+                  const pricePerSession = ((displayPkg as any).price || 0) / ((displayPkg as any).sessions || 1)
 
                   return (
                     <div
                       key={(displayPkg as any).id}
-                      className={`relative p-6 rounded-3xl cursor-pointer transition-all duration-300 border-2 hover:scale-105 hover:shadow-2xl flex-1 min-w-[280px] max-w-[350px] ${
+                      className={`relative bg-white rounded-xl p-5 cursor-pointer transition-all duration-300 border-2 hover:shadow-lg ${
                         formData.package.type === (displayPkg as any).id
-                          ? "border-blue-500 bg-gradient-to-br from-blue-50 to-purple-50 shadow-xl shadow-blue-200"
-                          : "border-gray-200 bg-white hover:border-blue-300 hover:shadow-xl"
+                          ? "border-blue-500 shadow-lg"
+                          : "border-gray-200 hover:border-blue-300"
                       }`}
                       onClick={() => selectPackage(displayPkg)}
                     >
-                      {((displayPkg as any).popular) && (
-                        <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
-                          <span className="bg-gradient-to-r from-orange-400 to-pink-500 text-white px-4 py-1 rounded-full text-sm font-semibold shadow-lg">
-                            Most Popular
+                      <div className="mb-3">
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <h3 className="text-lg md:text-xl font-bold text-gray-800">{(displayPkg as any).name}</h3>
+                          <div className="bg-gray-100 rounded px-1.5 py-0.5 text-[9px] leading-tight text-gray-600 shrink-0 self-start">
+                            {(displayPkg as any).duration || 30} Days Course Duration
+                          </div>
+                        </div>
+                        <p className="text-xs md:text-sm text-gray-500 line-clamp-2">{(displayPkg as any).description}</p>
+                      </div>
+
+                      <div className="mb-4">
+                        <div className="flex items-baseline gap-1">
+                          <span className="text-3xl md:text-4xl font-bold text-gray-800">
+                            ${(displayPkg as any).price || 0}
                           </span>
-                        </div>
-                      )}
-
-                      <div className="text-center">
-                        <h3 className="text-2xl font-bold text-gray-800 mb-2">{(displayPkg as any).name}</h3>
-                        <p className="text-gray-500 mb-6">{(displayPkg as any).description}</p>
-
-                        <div className="mb-6">
-                          <span className="text-4xl font-bold text-blue-600">{formatPrice((displayPkg as any).price, (displayPkg as any).currency)}</span>
-                          <span className="text-gray-500">/month</span>
-                        </div>
-
-                        <div className="space-y-3">
-                          {
-                            // Build a canonical array of strings from details, features, and rawComments.
-                            // Accept shapes: features can be array of strings, array of objects, or a single comma-separated string.
-                            (() => {
-                              const details: string[] = Array.isArray((displayPkg as any).details) ? (displayPkg as any).details.map(String) : []
-
-                              const rawFeatures = (displayPkg as any).features
-                              let featuresArr: string[] = []
-                              if (Array.isArray(rawFeatures)) {
-                                // If features is an array of objects like [{ title: 'x' }] or array of strings
-                                featuresArr = rawFeatures.map((f: any) => {
-                                  if (!f && f !== 0) return ''
-                                  if (typeof f === 'string') return f
-                                  if (typeof f === 'number') return String(f)
-                                  if (typeof f === 'object') return String(f.title || f.name || f.label || JSON.stringify(f))
-                                  return String(f)
-                                }).filter(Boolean)
-                              } else if (rawFeatures && typeof rawFeatures === 'string') {
-                                featuresArr = rawFeatures.split(',').map(s => s.trim()).filter(Boolean)
-                              }
-
-                              const rawComments = (displayPkg as any).rawComments
-                              let commentsArr: string[] = []
-                              if (Array.isArray(rawComments)) {
-                                commentsArr = rawComments.map(String).filter(Boolean)
-                              } else if (rawComments && typeof rawComments === 'string') {
-                                commentsArr = rawComments.split(',').map(s => s.trim()).filter(Boolean)
-                              }
-
-                              const all = ([] as string[])
-                                .concat(details)
-                                .concat(featuresArr)
-                                .concat(commentsArr)
-
-                              // Ensure each entry is split on commas (safety) and trimmed
-                              return all.flatMap(d => String(d).split(',').map(s => s.trim()).filter(Boolean))
-                            })().map((detail: string, idx: number) => (
-                              <div key={idx} className="flex items-center text-sm text-gray-600">
-                                <span className="w-2 h-2 bg-green-400 rounded-full mr-3 flex-shrink-0"></span>
-                                {detail}
-                              </div>
-                            ))
-                          }
+                          <span className="text-sm text-gray-500">/ course</span>
                         </div>
                       </div>
+
+                      <div className="space-y-2 mb-4">
+                        <div className="flex items-start text-sm text-gray-700">
+                          <span className="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-1.5 flex-shrink-0"></span>
+                          <span>{(displayPkg as any).sessions || 0} sessions per month</span>
+                        </div>
+                        <div className="flex items-start text-sm text-gray-700">
+                          <span className="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-1.5 flex-shrink-0"></span>
+                          <span>{(displayPkg as any).sessionsPerWeek || 0} sessions per week</span>
+                        </div>
+                        <div className="flex items-start text-sm text-gray-700">
+                          <span className="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-1.5 flex-shrink-0"></span>
+                          <span>{Math.round(sessionDuration)} minutes per session</span>
+                        </div>
+                        <div className="flex items-start text-sm text-gray-700">
+                          <span className="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-1.5 flex-shrink-0"></span>
+                          <span>{(displayPkg as any).currency || 'USD'} {(displayPkg as any).price || 0} total</span>
+                        </div>
+                        {(() => {
+                          const features = (displayPkg as any).features || []
+                          const featuresArr: string[] = Array.isArray(features) 
+                            ? features.map((f: any) => typeof f === 'string' ? f : (f?.title || f?.name || ''))
+                            : typeof features === 'string' 
+                            ? features.split(',').map((s: string) => s.trim())
+                            : []
+                          
+                          return featuresArr.filter(Boolean).map((feature: string, idx: number) => (
+                            <div key={idx} className="flex items-start text-sm text-gray-700">
+                              <span className="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-1.5 flex-shrink-0"></span>
+                              <span>{feature}</span>
+                            </div>
+                          ))
+                        })()}
+                      </div>
+
+                      <button
+                        className={`w-full py-2.5 rounded-lg font-semibold transition-all duration-300 text-sm ${
+                          formData.package.type === (displayPkg as any).id
+                            ? "bg-blue-500 text-white"
+                            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                        }`}
+                      >
+                        Select Package
+                      </button>
                     </div>
                   )
                 })}
@@ -1894,6 +1861,76 @@ const EnhancedEnrollmentForm = () => {
               <div className="flex items-center">
                 <span className="text-2xl mr-3" aria-hidden>{countryFlag}</span>
                 <p className="font-semibold text-amber-800">Your timezone: {userTimezone}</p>
+              </div>
+            </div>
+
+            <div className="bg-gradient-to-br from-green-50 to-teal-50 rounded-3xl p-8 mb-8 border border-green-200">
+              <div className="flex items-center justify-between mb-6">
+                <h4 className="text-2xl font-semibold text-gray-800 flex items-center">
+                  <span className="w-8 h-8 bg-green-500 rounded-xl flex items-center justify-center mr-3">
+                    <span className="text-white text-sm">✓</span>
+                  </span>
+                  Selected Sessions
+                </h4>
+                <div className="bg-white rounded-2xl px-4 py-2 shadow-sm border">
+                  <span className="font-bold text-green-600">{selectedSessions.length}</span>
+                  <span className="text-gray-500"> / </span>
+                  <span className="font-bold text-gray-700">{maxSessions}</span>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                {selectedSessions.length === 0 ? (
+                  <div className="text-center py-8">
+                    <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <span className="text-2xl text-gray-400">📅</span>
+                    </div>
+                    <p className="text-gray-500 font-medium">No sessions selected yet</p>
+                    <p className="text-gray-400 text-sm">Choose dates and times from the calendar above</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+                    {selectedSessions
+                      .sort((a, b) => {
+                        const dateA = new Date(`${a.date}T${a.time}:00`)
+                        const dateB = new Date(`${b.date}T${b.time}:00`)
+                        return dateA.getTime() - dateB.getTime()
+                      })
+                      .map((session, index) => {
+                        const date = new Date(`${session.date}T${session.time}:00`)
+                        return (
+                          <div
+                            key={index}
+                            className="bg-white rounded-2xl p-3 md:p-4 shadow-sm border border-green-200 flex items-center justify-between hover:shadow-md transition-all duration-300"
+                          >
+                            <div className="flex items-center">
+                              <div className="w-3 h-3 bg-green-500 rounded-full mr-3"></div>
+                              <div>
+                                <p className="font-semibold text-gray-800">
+                                  {date.toLocaleDateString("en-US", {
+                                    month: "short",
+                                    day: "numeric",
+                                    weekday: "short",
+                                  })}
+                                </p>
+                                <p className="text-sm text-gray-500">
+                                  {date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                </p>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => {
+                                setSelectedSessions((prev) => prev.filter((_, i) => i !== index))
+                              }}
+                              className="w-8 h-8 bg-red-100 hover:bg-red-200 text-red-600 rounded-full flex items-center justify-center transition-all duration-300 hover:scale-110"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        )
+                      })}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1999,76 +2036,6 @@ const EnhancedEnrollmentForm = () => {
                 )}
               </div>
             )}
-
-            <div className="bg-gradient-to-br from-green-50 to-teal-50 rounded-3xl p-8 border border-green-200">
-              <div className="flex items-center justify-between mb-6">
-                <h4 className="text-2xl font-semibold text-gray-800 flex items-center">
-                  <span className="w-8 h-8 bg-green-500 rounded-xl flex items-center justify-center mr-3">
-                    <span className="text-white text-sm">✓</span>
-                  </span>
-                  Selected Sessions
-                </h4>
-                <div className="bg-white rounded-2xl px-4 py-2 shadow-sm border">
-                  <span className="font-bold text-green-600">{selectedSessions.length}</span>
-                  <span className="text-gray-500"> / </span>
-                  <span className="font-bold text-gray-700">{maxSessions}</span>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                {selectedSessions.length === 0 ? (
-                  <div className="text-center py-8">
-                    <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <span className="text-2xl text-gray-400">📅</span>
-                    </div>
-                    <p className="text-gray-500 font-medium">No sessions selected yet</p>
-                    <p className="text-gray-400 text-sm">Choose dates and times from the calendar above</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
-                    {selectedSessions
-                      .sort((a, b) => {
-                        const dateA = new Date(`${a.date}T${a.time}:00`)
-                        const dateB = new Date(`${b.date}T${b.time}:00`)
-                        return dateA.getTime() - dateB.getTime()
-                      })
-                      .map((session, index) => {
-                        const date = new Date(`${session.date}T${session.time}:00`)
-                        return (
-                          <div
-                            key={index}
-                            className="bg-white rounded-2xl p-3 md:p-4 shadow-sm border border-green-200 flex items-center justify-between hover:shadow-md transition-all duration-300"
-                          >
-                            <div className="flex items-center">
-                              <div className="w-3 h-3 bg-green-500 rounded-full mr-3"></div>
-                              <div>
-                                <p className="font-semibold text-gray-800">
-                                  {date.toLocaleDateString("en-US", {
-                                    month: "short",
-                                    day: "numeric",
-                                    weekday: "short",
-                                  })}
-                                </p>
-                                <p className="text-sm text-gray-500">
-                                  {date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                                </p>
-                              </div>
-                            </div>
-                            <button
-                              onClick={() => {
-                                setSelectedSessions((prev) => prev.filter((_, i) => i !== index))
-                              }}
-                              className="w-8 h-8 bg-red-100 hover:bg-red-200 text-red-600 rounded-full flex items-center justify-center transition-all duration-300 hover:scale-110"
-                            >
-                              ×
-                            </button>
-                          </div>
-                        )
-                      })}
-                  </div>
-                )}
-              </div>
-            </div>
 
             <div className="flex justify-between mt-10">
               <button
