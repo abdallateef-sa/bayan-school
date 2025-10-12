@@ -5,28 +5,10 @@
 export type CountryOption = { value: string; label: string }
 export type StateOption = { name: string; code?: string }
 
-// Fetch states for a given country using backend when available.
-// Fallbacks are included for curated countries when the backend route is not available.
+// Fetch states for a given country using local fallbacks
+// API endpoint not available, using static data
 export async function fetchCountryStates(countryName: string): Promise<StateOption[]> {
-  // Try backend first
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || '/api/v1'
-  try {
-    const url = `${apiBaseUrl}/countries/${encodeURIComponent(countryName)}/states`
-    const res = await fetch(url)
-    if (res.ok) {
-      const body = await res.json().catch(() => ({}))
-      // Normalize common shapes
-      const states = body?.data?.states || body?.states || body?.data || []
-      if (Array.isArray(states) && states.length) {
-        return states
-          .map((s: any) => ({ name: String(s.name || s.state || s), code: s.code || s.iso2 }))
-          .filter((s: StateOption) => s.name)
-      }
-    }
-  } catch (_) {
-    // ignore and use fallbacks below
-  }
-
+  // Use local fallbacks directly - API endpoint not available
   // Fallbacks for curated countries
   if (countryName === 'United States') {
     try {

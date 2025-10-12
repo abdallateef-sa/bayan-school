@@ -208,21 +208,12 @@ const EnhancedEnrollmentForm = () => {
 
   // Separate function for countries API to make it reusable
   const fetchCountriesData = async () => {
-    const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1'
-    
+    // Use local countries list from curateCountries - API endpoint not available
     try {
-      // Fetch countries from single endpoint (server provides /countries)
-      const response = await fetch(`${apiBaseUrl}/countries`)
-      const data = await response.json()
-
-      if (data && (data.status === 'success' && data.data && data.data.countries)) {
-        return curateCountries(data.data.countries)
-      }
+      return curateCountries([])
     } catch (error) {
-      // Return null to use fallback countries
       return null
     }
-    return null
   }
 
   // Fetch user profile from database and update timezone
@@ -293,8 +284,6 @@ const EnhancedEnrollmentForm = () => {
   // Update timezone based on user's selected country
   const updateTimezoneFromUserCountry = async (countryName?: string) => {
     try {
-      const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1'
-      
       // Use the provided country or get from form data
       const userCountry = countryName || formData.personal.country
       
@@ -305,9 +294,15 @@ const EnhancedEnrollmentForm = () => {
           const tz = userCountry === 'United States' ? getTimezoneForUSState(selectedRegion) : getTimezoneForRegion(userCountry, selectedRegion)
           if (tz) { setUserTimezone(tz); return }
         }
-        const response = await fetch(`${apiBaseUrl}/countries/${encodeURIComponent(userCountry)}/timezone`)
-        const data = await response.json()
-        if (data.status === 'success' && data.data.timezone) setUserTimezone(data.data.timezone)
+        
+        // Use local timezone detection or region-based timezone
+        const tz = getTimezoneForRegion(userCountry, selectedRegion || '')
+        if (tz) {
+          setUserTimezone(tz)
+        } else {
+          // Fallback to browser's timezone
+          setUserTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone)
+        }
       }
     } catch (error) {
       // Silent error handling - fallback to browser timezone
@@ -335,7 +330,12 @@ const EnhancedEnrollmentForm = () => {
         setOtpSent(true)
     showToast(`${isLogin ? 'Login' : 'Registration'} OTP sent to your email address!`, "success")
       } else {
-  showToast(`Failed to send OTP: ${result.error}`, "error")
+        // Show user-friendly message for already registered emails
+        if (result.error && result.error.includes('already registered')) {
+          showToast("This email is already registered. Please switch to Login mode.", "error")
+        } else {
+          showToast(`Failed to send OTP: ${result.error}`, "error")
+        }
       }
     } catch (error) {
   showToast("Failed to send OTP. Please try again.", "error")
@@ -1728,7 +1728,11 @@ const EnhancedEnrollmentForm = () => {
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-                {(plans.length > 0 ? plans : packages).map((pkg, index) => {
+                {(plans.length > 0 ? [...plans].sort((a, b) => {
+                  const orderA = typeof a.order === 'number' ? a.order : 999
+                  const orderB = typeof b.order === 'number' ? b.order : 999
+                  return orderA - orderB
+                }) : packages).map((pkg, index) => {
                   const isApiPlan = plans.length > 0
 
                   const displayPkg = isApiPlan

@@ -24,6 +24,7 @@ function PlanForm({ initial, onCancel, onSave }: { initial?: any; onCancel: () =
   const [sessionsPerWeek, setSessionsPerWeek] = useState(initial?.sessionsPerWeek ?? initial?.sessionsPerWeek ?? 0)
   const [price, setPrice] = useState(initial?.price ?? initial?.amount ?? 0)
   const [currency, setCurrency] = useState(initial?.currency || 'USD')
+  const [order, setOrder] = useState(initial?.order ?? 0)
   // duration can be one of presets or a custom number
   const presets = [30, 60, 90, 120]
   const initialDuration = typeof initial?.duration === 'number' ? initial.duration : 30
@@ -44,6 +45,7 @@ function PlanForm({ initial, onCancel, onSave }: { initial?: any; onCancel: () =
       price: Number(price) || 0,
       currency: currency || 'EGP',
       duration: finalDuration,
+      order: Number(order) || 0,
       features: Array.isArray(features) ? features.filter(Boolean) : [],
     }
     await onSave(payload)
@@ -69,7 +71,7 @@ function PlanForm({ initial, onCancel, onSave }: { initial?: any; onCancel: () =
           <input title="Sessions per week" placeholder="2" type="number" className="w-full border rounded px-2 py-1" value={sessionsPerWeek} onChange={(e) => setSessionsPerWeek(Number(e.target.value))} />
         </div>
       </div>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-4 gap-2">
         <div>
           <label className="text-xs text-gray-500">Price</label>
           <input title="Price" placeholder="1000" type="number" className="w-full border rounded px-2 py-1" value={price} onChange={(e) => setPrice(Number(e.target.value))} />
@@ -79,6 +81,10 @@ function PlanForm({ initial, onCancel, onSave }: { initial?: any; onCancel: () =
           <select title="Currency" className="w-full border rounded px-2 py-1" value={currency} onChange={(e) => setCurrency(e.target.value)}>
             <option value="USD">USD</option>
           </select>
+        </div>
+        <div>
+          <label className="text-xs text-gray-500">Order</label>
+          <input title="Display order (lower numbers appear first)" placeholder="0" type="number" className="w-full border rounded px-2 py-1" value={order} onChange={(e) => setOrder(Number(e.target.value))} />
         </div>
         <div>
           <label className="text-xs text-gray-500">Duration (days)</label>
@@ -199,6 +205,14 @@ export default function AdminDashboard() {
       return !isPaid
     })
   }, [subscriptions, paymentFilter])
+
+  const sortedPlans = useMemo(() => {
+    return [...plans].sort((a, b) => {
+      const orderA = typeof a.order === 'number' ? a.order : 999
+      const orderB = typeof b.order === 'number' ? b.order : 999
+      return orderA - orderB
+    })
+  }, [plans])
 
   useEffect(() => {
     const t = typeof window !== 'undefined'
@@ -326,7 +340,24 @@ export default function AdminDashboard() {
         setError(res.error)
         setPlans([])
       } else {
-        setPlans(res.plans || [])
+        const fetchedPlans = res.plans || []
+        
+        // Try to load local order overrides (in case backend doesn't support ordering yet)
+        try {
+          const localOrder = localStorage.getItem('admin_plans_order')
+          if (localOrder) {
+            const orderMap = JSON.parse(localOrder)
+            const plansWithOrder = fetchedPlans.map((p: any) => ({
+              ...p,
+              order: orderMap[p._id || p.id] ?? p.order ?? 999
+            }))
+            setPlans(plansWithOrder)
+          } else {
+            setPlans(fetchedPlans)
+          }
+        } catch (e) {
+          setPlans(fetchedPlans)
+        }
       }
     } catch (e: any) {
       const msg = e?.message || ''
@@ -413,7 +444,10 @@ export default function AdminDashboard() {
         if (!res.success) {
           setError(res.error)
         } else {
-          setPlans(prev => [res.plan, ...prev])
+          // Add new plan with highest order if not specified
+          const maxOrder = Math.max(...plans.map(p => typeof p.order === 'number' ? p.order : -1), -1)
+          const newPlan = { ...res.plan, order: res.plan.order ?? (maxOrder + 1) }
+          setPlans(prev => [...prev, newPlan])
           setPlanModalOpen(false)
           setEditingPlan(null)
         }
@@ -447,6 +481,86 @@ export default function AdminDashboard() {
       }
       return s
     }))
+  }
+
+  const [draggedPlanIndex, setDraggedPlanIndex] = useState<number | null>(null)
+
+  const handleDragStart = (index: number) => {
+    setDraggedPlanIndex(index)
+  }
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault()
+    if (draggedPlanIndex === null || draggedPlanIndex === index) return
+
+    // Get current sorted plans
+    const currentSorted = [...sortedPlans]
+    const draggedPlan = currentSorted[draggedPlanIndex]
+    
+    // Remove from old position and insert at new position
+    currentSorted.splice(draggedPlanIndex, 1)
+    currentSorted.splice(index, 0, draggedPlan)
+
+    // Update order property for all plans
+    const updatedPlans = currentSorted.map((p, i) => ({ ...p, order: i }))
+    
+    // Update the main plans array with new order
+    setPlans(updatedPlans)
+    setDraggedPlanIndex(index)
+  }
+
+  const handleDragEnd = async () => {
+    if (draggedPlanIndex === null) {
+      setDraggedPlanIndex(null)
+      return
+    }
+
+    // Get the final order after all drag operations
+    const currentSorted = [...sortedPlans]
+    const updatedPlans = currentSorted.map((p, i) => ({ ...p, order: i }))
+    
+    // Save to localStorage as backup
+    try {
+      const orderMap: Record<string, number> = {}
+      updatedPlans.forEach((p, i) => {
+        orderMap[p._id || p.id] = i
+      })
+      localStorage.setItem('admin_plans_order', JSON.stringify(orderMap))
+      console.log('Order saved to localStorage:', orderMap)
+    } catch (e) {
+      console.error('Failed to save to localStorage:', e)
+    }
+    
+    // Update locally first for immediate UI persistence
+    setPlans(updatedPlans)
+    setDraggedPlanIndex(null)
+
+    // Try to save to backend (non-blocking)
+    if (token) {
+      try {
+        const planOrders = updatedPlans.map((p, i) => ({ 
+          planId: String(p._id || p.id), 
+          order: i 
+        }))
+        
+        console.log('Saving plan order to backend:', planOrders)
+        const res = await AppointmentAPI.adminReorderPlans(token, planOrders)
+        
+        if (!res.success) {
+          console.error('Failed to save plan order to backend:', res.error)
+          // Show error but keep local changes
+          setError(`Order saved locally. Backend sync failed: ${res.error}`)
+        } else {
+          console.log('Plan order saved successfully to backend')
+          // Clear any previous errors
+          setError(null)
+        }
+      } catch (e: any) {
+        console.error('Error saving plan order to backend:', e)
+        // Show error but keep local changes
+        setError(`Order saved locally. Backend sync failed: ${e?.message}`)
+      }
+    }
   }
 
   const toggleRow = async (sub: any) => {
@@ -952,7 +1066,10 @@ export default function AdminDashboard() {
         {view === 'plans' && (
           <div>
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-lg font-medium">Plans</h3>
+              <div>
+                <h3 className="text-lg font-medium">Plans</h3>
+                <p className="text-xs text-gray-500 mt-1">Drag and drop rows to reorder plans</p>
+              </div>
               <div className="flex items-center gap-2">
                 <Button onClick={() => { setEditingPlan(null); setPlanModalOpen(true) }}>Create New Plan</Button>
               </div>
@@ -962,6 +1079,7 @@ export default function AdminDashboard() {
               <TableHeader>
                 <tr>
                   <TableHead>#</TableHead>
+                  <TableHead>Order</TableHead>
                   <TableHead>Name</TableHead>
                   <TableHead>Price</TableHead>
                   <TableHead>Currency</TableHead>
@@ -972,11 +1090,26 @@ export default function AdminDashboard() {
                 </tr>
               </TableHeader>
               <TableBody>
-                {plans.map((p: any, i: number) => {
+                {sortedPlans.map((p: any, i: number) => {
                   const pid = p._id || p.id || String(i)
                   return (
-                    <TableRow key={pid} className="hover:bg-slate-50">
-                      <TableCell>{i + 1}</TableCell>
+                    <TableRow 
+                      key={pid} 
+                      draggable
+                      onDragStart={() => handleDragStart(i)}
+                      onDragOver={(e) => handleDragOver(e, i)}
+                      onDragEnd={handleDragEnd}
+                      className={`hover:bg-slate-50 cursor-move transition-all ${draggedPlanIndex === i ? 'opacity-50' : ''}`}
+                    >
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-400">⋮⋮</span>
+                          <span>{i + 1}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-sm font-medium">{p.order ?? i}</span>
+                      </TableCell>
                       <TableCell className="font-medium">{p.name || '—'}</TableCell>
                       <TableCell>{(p.price ?? p.amount ?? 0).toLocaleString?.() ?? p.price ?? '—'}</TableCell>
                       <TableCell>{p.currency || 'EGP'}</TableCell>
@@ -985,8 +1118,8 @@ export default function AdminDashboard() {
                       <TableCell>{p.duration ?? '—'}</TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          <Button size="sm" onClick={() => { setEditingPlan(p); setPlanModalOpen(true) }}>Edit</Button>
-                          <Button size="sm" variant="destructive" onClick={() => { setPendingDelete({ type: 'plan', id: pid }); setConfirmOpen(true) }}>Delete</Button>
+                          <Button size="sm" onClick={(e) => { e.stopPropagation(); setEditingPlan(p); setPlanModalOpen(true) }}>Edit</Button>
+                          <Button size="sm" variant="destructive" onClick={(e) => { e.stopPropagation(); setPendingDelete({ type: 'plan', id: pid }); setConfirmOpen(true) }}>Delete</Button>
                         </div>
                       </TableCell>
                     </TableRow>

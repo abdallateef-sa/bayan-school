@@ -13,6 +13,7 @@ export type Plan = {
   duration?: number
   isActive?: boolean
   pricePerSession?: number
+  order?: number
 }
 
 type ApiSuccess<T> = { success: true; data?: T; message?: string }
@@ -163,7 +164,8 @@ export const AppointmentAPI = {
 
   async getPlans(): Promise<{ success: true; plans: Plan[] } | ApiFailure> {
     try {
-      const url = `${getBaseUrl()}/plans`
+      // Request all plans without pagination limit (sorted by order)
+      const url = `${getBaseUrl()}/plans?limit=1000&sort=order`
       const res = await fetch(url, { cache: "no-store" })
       const body = await parseJson(res)
       
@@ -898,6 +900,23 @@ export const AppointmentAPI = {
       return { success: true, message: body?.message || 'Plan deleted' }
     } catch (e: any) {
       return { success: false, error: e?.message || 'Network error deleting plan' }
+    }
+  },
+
+  async adminReorderPlans(jwt: string, planOrders: { planId: string; order: number }[]): Promise<{ success: true; message?: string } | ApiFailure> {
+    try {
+      const url = `${getBaseUrl()}/admin/subscription-plans/reorder`
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+        // Backend expects { plans: [...] } not { planOrders: [...] }
+        body: JSON.stringify({ plans: planOrders }),
+      })
+      const body = await parseJson(res)
+      if (!res.ok) return { success: false, error: body?.message || `Failed to reorder plans (${res.status})` }
+      return { success: true, message: body?.message || 'Plans reordered' }
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Network error reordering plans' }
     }
   },
 }
