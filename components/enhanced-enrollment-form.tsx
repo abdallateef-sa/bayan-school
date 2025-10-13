@@ -1813,7 +1813,7 @@ const EnhancedEnrollmentForm = () => {
                               <span className="text-3xl md:text-4xl font-bold text-gray-800">
                                 ${(displayPkg as any).price}
                               </span>
-                              <span className="text-sm text-gray-500">/ course</span>
+                              <span className="text-sm text-gray-500">/ month</span>
                             </>
                           )}
                         </div>
@@ -1834,10 +1834,6 @@ const EnhancedEnrollmentForm = () => {
                             <div className="flex items-start text-sm text-gray-700">
                               <span className="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-1.5 flex-shrink-0"></span>
                               <span>{Math.round(sessionDuration)} minutes per session</span>
-                            </div>
-                            <div className="flex items-start text-sm text-gray-700">
-                              <span className="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-1.5 flex-shrink-0"></span>
-                              <span>{(displayPkg as any).currency || 'USD'} {(displayPkg as any).price} total</span>
                             </div>
                           </>
                         )}
