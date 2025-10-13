@@ -1066,10 +1066,29 @@ const EnhancedEnrollmentForm = () => {
             ` : ''}
           </div>
         </div>
+        
+        
+        <!-- Page Break Before Sessions -->
+        <div class="page-break"></div>
 
         <!-- Scheduled Sessions -->
         <div class="section">
           <h2>Scheduled Sessions (${selectedSessions.length} sessions)</h2>
+          
+          <!-- Warning Box -->
+          <div style="background: #fef3c7; border: 2px solid #f59e0b; border-radius: 8px; padding: 15px; margin: 15px 0;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span style="font-size: 24px;">⚠️</span>
+              <div>
+                <p style="margin: 0; font-weight: 600; color: #92400e;">Important Notice:</p>
+                <p style="margin: 5px 0 0 0; color: #92400e; font-size: 14px;">
+                  If there is any conflict in Sessions Date/Time between the summary PDF and the Confirmation Email, 
+                  please consider the <strong>Confirmation Email</strong> as the correct reference.
+                </p>
+              </div>
+            </div>
+          </div>
+
           ${selectedSessions.length > 0 ? `
           <ul class="sessions-list">
             ${selectedSessions.map(session => `
@@ -1116,7 +1135,7 @@ const EnhancedEnrollmentForm = () => {
 
         <div class="footer">
           <p>Bayan School - All Rights Reserved</p>
-          <p>For inquiries: support@bayan-school.com | 123-456-7890</p>
+          <p>For inquiries: arsessions26@gmail.com</p>
         </div>
       </body>
       </html>
